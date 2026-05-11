@@ -42,7 +42,7 @@ const Chat: React.FC = () => {
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
-    
+
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
     const [categories, setCategories] = useState<EmojiCategory[]>([]);
@@ -88,9 +88,9 @@ const Chat: React.FC = () => {
     const [personalityRescue, setPersonalityRescue] = useState<PersonalityRescueState>({ open: false });
 
     // Archive Prompts State
-    const [archivePrompts, setArchivePrompts] = useState<{id: string, name: string, content: string}[]>(DEFAULT_ARCHIVE_PROMPTS);
+    const [archivePrompts, setArchivePrompts] = useState<{ id: string, name: string, content: string }[]>(DEFAULT_ARCHIVE_PROMPTS);
     const [selectedPromptId, setSelectedPromptId] = useState<string>('preset_rational');
-    const [editingPrompt, setEditingPrompt] = useState<{id: string, name: string, content: string} | null>(null);
+    const [editingPrompt, setEditingPrompt] = useState<{ id: string, name: string, content: string } | null>(null);
 
     // --- Multi-Select State ---
     const [selectionMode, setSelectionMode] = useState(false);
@@ -234,7 +234,7 @@ const Chat: React.FC = () => {
         }
         audio.src = data.url;
         audio.onended = () => setPlayingMsgId(null);
-        audio.play().catch(() => {});
+        audio.play().catch(() => { });
         setPlayingMsgId(msgId);
     };
 
@@ -323,7 +323,54 @@ const Chat: React.FC = () => {
 
             if (!spokenText || spokenText.length < 2) return;
 
-            const { url: blobUrl, blob } = await synthesizeSpeechDetailed(spokenText, char, apiConfig, {
+            // --- 🚀 绝美语音预处理核心逻辑 START ---
+            let finalSpokenText = spokenText;
+            try {
+                if (localStorage.getItem('ttsPreEnabled') === 'true') {
+                    const prePrompt = localStorage.getItem('ttsPrePrompt') || '';
+                    const preModel = localStorage.getItem('ttsPreModel') || apiConfig.model;
+                    const preUrl = localStorage.getItem('ttsPreApiUrl') || apiConfig.baseUrl;
+                    const preKey = localStorage.getItem('ttsPreApiKey') || apiConfig.apiKey;
+
+                    if (prePrompt && preUrl && preKey) {
+                        const preRes = await fetch(`${preUrl}/chat/completions`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${preKey}`
+                            },
+                            body: JSON.stringify({
+                                model: preModel,
+                                messages: [
+                                    { role: 'system', content: prePrompt },
+                                    { role: 'user', content: spokenText }
+                                ],
+                                temperature: 0.5, // 给它留一点发挥情绪的空间
+                            }),
+                        });
+
+                        if (!preRes.ok) {
+                            throw new Error(`请求失败，状态码: ${preRes.status}`);
+                        }
+
+                        const preData = await preRes.json();
+                        const processedText = preData?.choices?.[0]?.message?.content?.trim();
+                        if (processedText) {
+                            finalSpokenText = processedText; // 换上带有(laughs)标签的加工后台词！
+                        } else {
+                            addToast('⚠️ 预处理模型没吐出文字，已降级为原句发音', 'info');
+                        }
+                    } else {
+                        addToast('⚠️ 预处理的网址/密钥/模型名没填全，已降级为原句发音', 'info');
+                    }
+                }
+            } catch (err: any) {
+                console.warn('TTS预处理报错啦:', err);
+                addToast(`⚠️ 语音预处理失败: ${err?.message || '未知报错'} (已降级为原句播放)`, 'error');
+            }
+            // --- 🚀 绝美语音预处理核心逻辑 END ---
+
+            const { url: blobUrl, blob } = await synthesizeSpeechDetailed(finalSpokenText, char, apiConfig, {
                 languageBoost: voiceLang || undefined,
                 groupId: apiConfig.minimaxGroupId || undefined,
             });
@@ -337,7 +384,7 @@ const Chat: React.FC = () => {
             if (!chatAudioRef.current) chatAudioRef.current = new Audio();
             chatAudioRef.current.src = blobUrl;
             chatAudioRef.current.onended = () => setPlayingMsgId(null);
-            chatAudioRef.current.play().catch(() => {});
+            chatAudioRef.current.play().catch(() => { });
             setPlayingMsgId(msg.id);
         } catch (err: any) {
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
@@ -545,7 +592,7 @@ const Chat: React.FC = () => {
             } else {
                 setScheduleData(existing);
             }
-        }).catch(() => {});
+        }).catch(() => { });
     }, [activeCharacterId, char?.scheduleFeatureEnabled]);
 
     // Load all messages when history-manager modal opens
@@ -567,7 +614,7 @@ const Chat: React.FC = () => {
                 const parsed = JSON.parse(savedPrompts);
                 const merged = [...DEFAULT_ARCHIVE_PROMPTS, ...parsed.filter((p: any) => !p.id.startsWith('preset_'))];
                 setArchivePrompts(merged);
-            } catch(e) {}
+            } catch (e) { }
         }
         const savedId = localStorage.getItem('chat_active_archive_prompt_id');
         if (savedId && archivePrompts.some(p => p.id === savedId)) setSelectedPromptId(savedId);
@@ -578,7 +625,7 @@ const Chat: React.FC = () => {
             reloadMessages(visibleCountRef.current);
             clearUnread(activeCharacterId);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- clearUnread is stable (useCallback with []), omit to prevent stale-dep lint noise
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- clearUnread is stable (useCallback with []), omit to prevent stale-dep lint noise
     }, [lastMsgTimestamp, activeCharacterId, reloadMessages, clearUnread]);
 
     useEffect(() => {
@@ -599,7 +646,7 @@ const Chat: React.FC = () => {
                         activeBuffs: updated.activeBuffs,
                         buffInjection: updated.buffInjection
                     });
-                }).catch(() => {});
+                }).catch(() => { });
             }
         };
         window.addEventListener('emotion-updated', handler);
@@ -661,7 +708,7 @@ const Chat: React.FC = () => {
                 const { detectPersonalityStyle } = await import('../utils/memoryPalace/digestion');
                 const result = await detectPersonalityStyle(rescueCharId, rescueCharName, persona, llmForRescue);
                 if (cancelled) return;
-                try { localStorage.setItem(rescuedKey, '1'); } catch {}
+                try { localStorage.setItem(rescuedKey, '1'); } catch { }
                 updateCharacter(rescueCharId, {
                     personalityStyle: result.style,
                     ruminationTendency: result.ruminationTendency,
@@ -740,7 +787,7 @@ const Chat: React.FC = () => {
         }
 
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
-        
+
         if (type === 'image') {
             const recentChat = messages.slice(-10).map(m => {
                 const sender = m.role === 'user' ? userProfile.name : char.name;
@@ -758,7 +805,7 @@ const Chat: React.FC = () => {
         }
 
         const msgPayload: any = { charId: char.id, role: 'user', type, content: text, metadata };
-        
+
         if (replyTarget) {
             msgPayload.replyTo = {
                 id: replyTarget.id,
@@ -823,8 +870,24 @@ const Chat: React.FC = () => {
 
         triggerAI(newHistory);
     };
-
+ const handleFileSelect = async (file: File) => {
+            try {
+                setShowPanel('none');
+                // 支持市面上绝大多数的纯文本和代码文件读取
+                if (file.name.match(/\.(txt|md|json|csv|js|ts|tsx|html|css|py|java|c|cpp)$/i)) {
+                    const text = await file.text();
+                    // 把文件内容作为聊天文本发出去
+                    await handleSendText(`[上传了文件: ${file.name}]\n\n${text}`, 'text');
+                    addToast(`文件 ${file.name} 解析成功并发送`, 'success');
+                } else {
+                    addToast(`暂不支持直接读取 ${file.name}，请传纯文本/代码文件`, 'info');
+                }
+            } catch (err: any) {
+                addToast(err.message || '文件处理失败', 'error');
+            }
+        };
     const handleImageSelect = async (file: File, isOriginal?: boolean) => {
+       
         try {
             const base64 = await processImage(file, isOriginal ? { skipCompression: true } : { maxWidth: 600, quality: 0.6, forceJpeg: true });
             setShowPanel('none');
@@ -1099,8 +1162,8 @@ const Chat: React.FC = () => {
 
     const handleAddCategory = async () => {
         if (!newCategoryName.trim()) {
-             addToast('请输入分类名称', 'error');
-             return;
+            addToast('请输入分类名称', 'error');
+            return;
         }
         const newCat = { id: `cat-${Date.now()}`, name: newCategoryName.trim() };
         await DB.saveEmojiCategory(newCat);
@@ -1208,7 +1271,7 @@ const Chat: React.FC = () => {
             const dataUrl = await processImage(file, { skipCompression: true });
             updateCharacter(char.id, { chatBackground: dataUrl });
             addToast('聊天背景已更新', 'success');
-        } catch(err: any) {
+        } catch (err: any) {
             addToast(err.message, 'error');
         }
     };
@@ -1434,13 +1497,13 @@ const Chat: React.FC = () => {
         const allMessages = await DB.getMessagesByCharId(char.id, true);
         const msgsByDate: Record<string, Message[]> = {};
         allMessages
-        .filter(m => !char.hideBeforeMessageId || m.id >= char.hideBeforeMessageId)
-        .forEach(m => {
-            const d = new Date(m.timestamp);
-            const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            if (!msgsByDate[dateStr]) msgsByDate[dateStr] = [];
-            msgsByDate[dateStr].push(m);
-        });
+            .filter(m => !char.hideBeforeMessageId || m.id >= char.hideBeforeMessageId)
+            .forEach(m => {
+                const d = new Date(m.timestamp);
+                const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                if (!msgsByDate[dateStr]) msgsByDate[dateStr] = [];
+                msgsByDate[dateStr].push(m);
+            });
 
         const datesToProcess = Object.keys(msgsByDate).sort();
         if (datesToProcess.length === 0) {
@@ -1466,7 +1529,7 @@ const Chat: React.FC = () => {
                 const rawLog = dayMsgs
                     .map(m => formatMessageWithTime(m, char.name, userProfile.name, formatTime))
                     .join('\n');
-                
+
                 let prompt = template;
                 prompt = prompt.replace(/\$\{dateStr\}/g, dateStr);
                 prompt = prompt.replace(/\$\{char\.name\}/g, char.name);
@@ -1480,7 +1543,7 @@ const Chat: React.FC = () => {
                         model: apiConfig.model,
                         messages: [{ role: "user", content: prompt }],
                         temperature: 0.5,
-                        max_tokens: 8000 
+                        max_tokens: 8000
                     })
                 });
 
@@ -1756,10 +1819,10 @@ const Chat: React.FC = () => {
         chatChromeStyle === 'pixel'
             ? 'flex flex-col h-full bg-[#efe1cf] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
             : chatChromeStyle === 'flat'
-              ? 'flex flex-col h-full bg-white overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
-              : chatChromeStyle === 'floating'
-                ? 'flex flex-col h-full bg-[#eef2ff] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
-                : 'flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
+                ? 'flex flex-col h-full bg-white overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
+                : chatChromeStyle === 'floating'
+                    ? 'flex flex-col h-full bg-[#eef2ff] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500'
+                    : 'flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans transition-[background-image,background-color] duration-500';
     const chatRootStyle: React.CSSProperties = char.chatBackground
         ? {
             backgroundImage: `url(${char.chatBackground})`,
@@ -1767,178 +1830,178 @@ const Chat: React.FC = () => {
             backgroundPosition: 'center',
         }
         : chatBackgroundStyle === 'grid'
-          ? {
-              backgroundColor: chatChromeStyle === 'pixel' ? '#efe1cf' : '#f8fafc',
-              backgroundImage:
-                  'linear-gradient(rgba(148,163,184,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.14) 1px, transparent 1px)',
-              backgroundSize: '20px 20px',
-            }
-          : chatBackgroundStyle === 'paper'
             ? {
-                backgroundColor: chatChromeStyle === 'pixel' ? '#f4e8d9' : '#f9f7f2',
-                backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(148,163,184,0.12) 1px, transparent 0)',
-                backgroundSize: '16px 16px',
-              }
-            : chatBackgroundStyle === 'mesh'
-              ? {
-                  backgroundColor: '#f8fafc',
-                  backgroundImage:
-                      'radial-gradient(circle at 15% 20%, rgba(59,130,246,0.18), transparent 28%), radial-gradient(circle at 85% 15%, rgba(244,114,182,0.18), transparent 24%), radial-gradient(circle at 60% 75%, rgba(45,212,191,0.18), transparent 26%)',
+                backgroundColor: chatChromeStyle === 'pixel' ? '#efe1cf' : '#f8fafc',
+                backgroundImage:
+                    'linear-gradient(rgba(148,163,184,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.14) 1px, transparent 1px)',
+                backgroundSize: '20px 20px',
+            }
+            : chatBackgroundStyle === 'paper'
+                ? {
+                    backgroundColor: chatChromeStyle === 'pixel' ? '#f4e8d9' : '#f9f7f2',
+                    backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(148,163,184,0.12) 1px, transparent 0)',
+                    backgroundSize: '16px 16px',
                 }
-              : {
-                  backgroundImage: 'none',
-                };
+                : chatBackgroundStyle === 'mesh'
+                    ? {
+                        backgroundColor: '#f8fafc',
+                        backgroundImage:
+                            'radial-gradient(circle at 15% 20%, rgba(59,130,246,0.18), transparent 28%), radial-gradient(circle at 85% 15%, rgba(244,114,182,0.18), transparent 24%), radial-gradient(circle at 60% 75%, rgba(45,212,191,0.18), transparent 26%)',
+                    }
+                    : {
+                        backgroundImage: 'none',
+                    };
 
     return (
-        <div 
+        <div
             className={chatRootClass}
             style={chatRootStyle}
         >
-             {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
+            {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
 
-             {/* 记忆整理中 — 顶部浮动胶囊（不阻塞交互，轻量无 backdrop-filter） */}
-             {memoryPalaceStatus && (
-                 <div
-                     className="absolute top-[76px] left-1/2 z-[150] animate-fade-in"
-                     style={{
-                         transform: 'translateX(-50%)',
-                         pointerEvents: 'none',
-                         willChange: 'transform, opacity',
-                     }}
-                 >
-                     <div
-                         className="flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 max-w-[18rem]"
-                         style={{
-                             background: 'rgba(255,255,255,0.88)',
-                             borderRadius: 999,
-                             border: '1px solid rgba(99,102,241,0.18)',
-                             boxShadow: '0 6px 18px -6px rgba(15,23,42,0.22)',
-                         }}
-                     >
-                         <span
-                             className="shrink-0 inline-block w-3.5 h-3.5 rounded-full border-2 border-slate-200 animate-spin"
-                             style={{ borderTopColor: '#6366f1', animationDuration: '0.9s' }}
-                         />
-                         <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
-                             {char?.name || '角色'}正在沉思
-                         </span>
-                         <span className="text-[10px] text-slate-400 truncate">{memoryPalaceStatus}</span>
-                     </div>
-                 </div>
-             )}
+            {/* 记忆整理中 — 顶部浮动胶囊（不阻塞交互，轻量无 backdrop-filter） */}
+            {memoryPalaceStatus && (
+                <div
+                    className="absolute top-[76px] left-1/2 z-[150] animate-fade-in"
+                    style={{
+                        transform: 'translateX(-50%)',
+                        pointerEvents: 'none',
+                        willChange: 'transform, opacity',
+                    }}
+                >
+                    <div
+                        className="flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 max-w-[18rem]"
+                        style={{
+                            background: 'rgba(255,255,255,0.88)',
+                            borderRadius: 999,
+                            border: '1px solid rgba(99,102,241,0.18)',
+                            boxShadow: '0 6px 18px -6px rgba(15,23,42,0.22)',
+                        }}
+                    >
+                        <span
+                            className="shrink-0 inline-block w-3.5 h-3.5 rounded-full border-2 border-slate-200 animate-spin"
+                            style={{ borderTopColor: '#6366f1', animationDuration: '0.9s' }}
+                        />
+                        <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                            {char?.name || '角色'}正在沉思
+                        </span>
+                        <span className="text-[10px] text-slate-400 truncate">{memoryPalaceStatus}</span>
+                    </div>
+                </div>
+            )}
 
 
-             {/* 记忆整理结果 — 弹窗（高级感） */}
-             {memoryPalaceResult && (
-                 <div
-                     className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
-                     style={{
-                         pointerEvents: 'all',
-                         background: 'rgba(15,23,42,0.55)',
-                     }}
-                     onClick={() => setMemoryPalaceResult(null)}
-                 >
-                     <div
-                         className="w-full max-w-sm max-h-[82vh] overflow-hidden flex flex-col relative"
-                         style={{
-                             background: 'linear-gradient(160deg, #ffffff 0%, #f8fafc 100%)',
-                             borderRadius: 28,
-                             border: '1px solid rgba(148,163,184,0.18)',
-                             boxShadow: '0 20px 50px -20px rgba(15,23,42,0.35)',
-                         }}
-                         onClick={(e) => e.stopPropagation()}
-                     >
-                         <div
-                             className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
-                             style={{ background: 'linear-gradient(90deg, transparent, #6366f1, #a5b4fc, #6366f1, transparent)' }}
-                         />
-                         <div className="px-6 pt-7 pb-4 text-center">
-                             <div
-                                 className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
-                                 style={{
-                                     background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(129,140,248,0.06))',
-                                     border: '1px solid rgba(99,102,241,0.15)',
-                                 }}
-                             >
-                                 <span style={{ fontSize: 26 }}>🗂️</span>
-                             </div>
-                             <div className="text-[10px] tracking-[0.25em] uppercase font-semibold" style={{ color: '#6366f1' }}>Memory Palace</div>
-                             <p className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>记忆整理完成</p>
-                             <p className="text-[11px] text-slate-400 mt-1">
-                                 新增 {memoryPalaceResult.stored} 条 · 去重跳过 {memoryPalaceResult.skipped} 条
-                                 {memoryPalaceResult.batches.length > 1 && ` · ${memoryPalaceResult.batches.length} 批`}
-                             </p>
-                             {memoryPalaceResult.batches.some(b => !b.ok) && (
-                                 <p className="text-[10px] text-red-500 mt-1">
-                                     {memoryPalaceResult.batches.filter(b => !b.ok).map(b => `batch ${b.index} 失败`).join(', ')}
-                                 </p>
-                             )}
-                         </div>
-                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
-                             {memoryPalaceResult.memories.map((m, i) => {
-                                 const roomMeta: Record<string, { label: string; color: string }> = {
-                                     living_room: { label: '客厅', color: '#f59e0b' },
-                                     bedroom: { label: '卧室', color: '#8b5cf6' },
-                                     study: { label: '书房', color: '#0ea5e9' },
-                                     user_room: { label: '用户房间', color: '#ec4899' },
-                                     self_room: { label: '自我房间', color: '#10b981' },
-                                     attic: { label: '阁楼', color: '#6366f1' },
-                                     windowsill: { label: '窗台', color: '#14b8a6' },
-                                 };
-                                 const meta = roomMeta[m.room] || { label: m.room, color: '#64748b' };
-                                 return (
-                                     <div
-                                         key={i}
-                                         className="p-3 rounded-2xl"
-                                         style={{
-                                             background: 'rgba(255,255,255,0.75)',
-                                             border: `1px solid ${meta.color}22`,
-                                             boxShadow: `0 2px 8px ${meta.color}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
-                                         }}
-                                     >
-                                         <div className="flex items-center gap-2 mb-1.5">
-                                             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                                                 style={{ background: `${meta.color}18`, color: meta.color }}
-                                             >
-                                                 {meta.label}
-                                             </span>
-                                             <span className="text-[10px] text-slate-400">{m.mood}</span>
-                                             <span className="text-[10px] font-bold ml-auto" style={{ color: '#f59e0b' }}>{'★'.repeat(Math.min(m.importance, 5))}</span>
-                                         </div>
-                                         <p className="text-[12px] text-slate-700 leading-relaxed">{m.content}</p>
-                                         {m.tags.length > 0 && (
-                                             <div className="flex gap-1 mt-2 flex-wrap">
-                                                 {m.tags.map((t, j) => (
-                                                     <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full"
-                                                         style={{ background: 'rgba(148,163,184,0.15)', color: '#64748b' }}
-                                                     >{t}</span>
-                                                 ))}
-                                             </div>
-                                         )}
-                                     </div>
-                                 );
-                             })}
-                             {memoryPalaceResult.memories.length === 0 && (
-                                 <p className="text-center text-xs text-slate-400 py-4">本次未提取到新记忆</p>
-                             )}
-                         </div>
-                         <div className="px-6 pb-6 pt-2">
-                             <button
-                                 onClick={() => setMemoryPalaceResult(null)}
-                                 className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
-                                 style={{
-                                     background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                                     boxShadow: '0 6px 18px -6px rgba(79,70,229,0.5)',
-                                 }}
-                             >
-                                 确认
-                             </button>
-                         </div>
-                     </div>
-                 </div>
-             )}
+            {/* 记忆整理结果 — 弹窗（高级感） */}
+            {memoryPalaceResult && (
+                <div
+                    className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
+                    style={{
+                        pointerEvents: 'all',
+                        background: 'rgba(15,23,42,0.55)',
+                    }}
+                    onClick={() => setMemoryPalaceResult(null)}
+                >
+                    <div
+                        className="w-full max-w-sm max-h-[82vh] overflow-hidden flex flex-col relative"
+                        style={{
+                            background: 'linear-gradient(160deg, #ffffff 0%, #f8fafc 100%)',
+                            borderRadius: 28,
+                            border: '1px solid rgba(148,163,184,0.18)',
+                            boxShadow: '0 20px 50px -20px rgba(15,23,42,0.35)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div
+                            className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
+                            style={{ background: 'linear-gradient(90deg, transparent, #6366f1, #a5b4fc, #6366f1, transparent)' }}
+                        />
+                        <div className="px-6 pt-7 pb-4 text-center">
+                            <div
+                                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
+                                style={{
+                                    background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(129,140,248,0.06))',
+                                    border: '1px solid rgba(99,102,241,0.15)',
+                                }}
+                            >
+                                <span style={{ fontSize: 26 }}>🗂️</span>
+                            </div>
+                            <div className="text-[10px] tracking-[0.25em] uppercase font-semibold" style={{ color: '#6366f1' }}>Memory Palace</div>
+                            <p className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>记忆整理完成</p>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                                新增 {memoryPalaceResult.stored} 条 · 去重跳过 {memoryPalaceResult.skipped} 条
+                                {memoryPalaceResult.batches.length > 1 && ` · ${memoryPalaceResult.batches.length} 批`}
+                            </p>
+                            {memoryPalaceResult.batches.some(b => !b.ok) && (
+                                <p className="text-[10px] text-red-500 mt-1">
+                                    {memoryPalaceResult.batches.filter(b => !b.ok).map(b => `batch ${b.index} 失败`).join(', ')}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
+                            {memoryPalaceResult.memories.map((m, i) => {
+                                const roomMeta: Record<string, { label: string; color: string }> = {
+                                    living_room: { label: '客厅', color: '#f59e0b' },
+                                    bedroom: { label: '卧室', color: '#8b5cf6' },
+                                    study: { label: '书房', color: '#0ea5e9' },
+                                    user_room: { label: '用户房间', color: '#ec4899' },
+                                    self_room: { label: '自我房间', color: '#10b981' },
+                                    attic: { label: '阁楼', color: '#6366f1' },
+                                    windowsill: { label: '窗台', color: '#14b8a6' },
+                                };
+                                const meta = roomMeta[m.room] || { label: m.room, color: '#64748b' };
+                                return (
+                                    <div
+                                        key={i}
+                                        className="p-3 rounded-2xl"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.75)',
+                                            border: `1px solid ${meta.color}22`,
+                                            boxShadow: `0 2px 8px ${meta.color}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                                                style={{ background: `${meta.color}18`, color: meta.color }}
+                                            >
+                                                {meta.label}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">{m.mood}</span>
+                                            <span className="text-[10px] font-bold ml-auto" style={{ color: '#f59e0b' }}>{'★'.repeat(Math.min(m.importance, 5))}</span>
+                                        </div>
+                                        <p className="text-[12px] text-slate-700 leading-relaxed">{m.content}</p>
+                                        {m.tags.length > 0 && (
+                                            <div className="flex gap-1 mt-2 flex-wrap">
+                                                {m.tags.map((t, j) => (
+                                                    <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full"
+                                                        style={{ background: 'rgba(148,163,184,0.15)', color: '#64748b' }}
+                                                    >{t}</span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {memoryPalaceResult.memories.length === 0 && (
+                                <p className="text-center text-xs text-slate-400 py-4">本次未提取到新记忆</p>
+                            )}
+                        </div>
+                        <div className="px-6 pb-6 pt-2">
+                            <button
+                                onClick={() => setMemoryPalaceResult(null)}
+                                className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
+                                style={{
+                                    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                                    boxShadow: '0 6px 18px -6px rgba(79,70,229,0.5)',
+                                }}
+                            >
+                                确认
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
-             <ChatModals
+            <ChatModals
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
                 emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
@@ -1949,16 +2012,16 @@ const Chat: React.FC = () => {
                 archivePrompts={archivePrompts} selectedPromptId={selectedPromptId} setSelectedPromptId={(id: string) => {
                     setSelectedPromptId(id);
                     // 同步写 localStorage，让 palace extraction 的风格追加能读到最新选择
-                    try { localStorage.setItem('chat_active_archive_prompt_id', id); } catch {}
+                    try { localStorage.setItem('chat_active_archive_prompt_id', id); } catch { }
                 }}
                 editingPrompt={editingPrompt} setEditingPrompt={setEditingPrompt} isSummarizing={isSummarizing} archiveProgress={archiveProgress}
                 selectedMessage={selectedMessage} selectedEmoji={selectedEmoji} activeCharacter={char} messages={messages}
                 allHistoryMessages={allHistoryMessages}
-                
+
                 newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={handleAddCategory}
                 selectedCategory={selectedCategory}
 
-                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt }); setModalType('none'); }}
+                onTransfer={() => { if (transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt }); setModalType('none'); }}
                 onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}
@@ -2013,9 +2076,9 @@ const Chat: React.FC = () => {
                     updateCharacter(char.id, { activeBuffs: [], buffInjection: '' });
                     addToast('情绪状态已清除', 'info');
                 }}
-             />
-             
-             <ChatHeader
+            />
+
+            <ChatHeader
                 selectionMode={selectionMode}
                 selectedCount={selectedMsgIds.size}
                 onCancelSelection={() => { setSelectionMode(false); setSelectedMsgIds(new Set()); }}
@@ -2043,7 +2106,7 @@ const Chat: React.FC = () => {
                 headerDensity={osTheme.chatHeaderDensity}
                 statusStyle={osTheme.chatStatusStyle}
                 chromeStyle={osTheme.chatChromeStyle}
-             />
+            />
 
             {/* 认知消化结果弹窗 — 全屏玻璃拟态 */}
             {lastDigestResult && (() => {
@@ -2200,43 +2263,43 @@ const Chat: React.FC = () => {
                             id={`chat-msg-${m.id}`}
                             className={flashMsgId === m.id ? 'ring-2 ring-yellow-300 bg-yellow-50/40 rounded-2xl mx-2 transition-all duration-500' : ''}
                         >
-                        <MessageItem
-                            msg={m}
-                            isFirstInGroup={breaksWithPrevious}
-                            isLastInGroup={breaksWithNext}
-                            activeTheme={activeTheme}
-                            charAvatar={char.avatar}
-                            charName={char.name}
-                            userAvatar={userProfile.avatar}
-                            onLongPress={handleMessageLongPress}
-                            selectionMode={selectionMode}
-                            isSelected={selectedMsgIds.has(m.id)}
-                            onToggleSelect={toggleMessageSelection}
-                            translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
-                            isShowingTarget={showingTargetIds.has(m.id)}
-                            onTranslateToggle={handleTranslateToggle}
-                            voiceData={voiceDataMap[m.id]}
-                            voiceLoading={voiceLoading.has(m.id)}
-                            isVoicePlaying={playingMsgId === m.id}
-                            onPlayVoice={() => handlePlayVoice(m.id)}
-                            avatarShape={osTheme.chatAvatarShape}
-                            avatarSize={osTheme.chatAvatarSize}
-                            avatarMode={osTheme.chatAvatarMode}
-                            bubbleVariant={osTheme.chatBubbleStyle}
-                            messageSpacing={osTheme.chatMessageSpacing}
-                            showTimestamp={osTheme.chatShowTimestamp}
-                            onMcdSendCart={handleMcdSendCart}
-                            onMcdCandidate={handleMcdCandidate}
-                            thinkingChainOptions={{
-                                styleId: (char as any).thinkingChainStyle || 'echo',
-                                customColors: (char as any).thinkingChainCustomColors,
-                                onOpenSettings: () => setShowThinkingChainModal(true),
-                            }}
-                        />
+                            <MessageItem
+                                msg={m}
+                                isFirstInGroup={breaksWithPrevious}
+                                isLastInGroup={breaksWithNext}
+                                activeTheme={activeTheme}
+                                charAvatar={char.avatar}
+                                charName={char.name}
+                                userAvatar={userProfile.avatar}
+                                onLongPress={handleMessageLongPress}
+                                selectionMode={selectionMode}
+                                isSelected={selectedMsgIds.has(m.id)}
+                                onToggleSelect={toggleMessageSelection}
+                                translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
+                                isShowingTarget={showingTargetIds.has(m.id)}
+                                onTranslateToggle={handleTranslateToggle}
+                                voiceData={voiceDataMap[m.id]}
+                                voiceLoading={voiceLoading.has(m.id)}
+                                isVoicePlaying={playingMsgId === m.id}
+                                onPlayVoice={() => handlePlayVoice(m.id)}
+                                avatarShape={osTheme.chatAvatarShape}
+                                avatarSize={osTheme.chatAvatarSize}
+                                avatarMode={osTheme.chatAvatarMode}
+                                bubbleVariant={osTheme.chatBubbleStyle}
+                                messageSpacing={osTheme.chatMessageSpacing}
+                                showTimestamp={osTheme.chatShowTimestamp}
+                                onMcdSendCart={handleMcdSendCart}
+                                onMcdCandidate={handleMcdCandidate}
+                                thinkingChainOptions={{
+                                    styleId: (char as any).thinkingChainStyle || 'echo',
+                                    customColors: (char as any).thinkingChainCustomColors,
+                                    onOpenSettings: () => setShowThinkingChainModal(true),
+                                }}
+                            />
                         </div>
                     );
                 })}
-                
+
                 {(isTyping || recallStatus || searchStatus || diaryStatus || isProactiveComposing) && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-6 animate-fade-in">
                         <img src={char.avatar} className={`${osTheme.chatAvatarSize === 'small' ? 'w-7 h-7' : osTheme.chatAvatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9'} ${osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-[10px]'} object-cover`} />
@@ -2273,14 +2336,14 @@ const Chat: React.FC = () => {
                 {mcdActivated && (
                     <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
                         <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"/>
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
                             🍔 麦请求进行中
                         </div>
                         <button
-                          onClick={() => handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true })}
-                          className="px-2.5 py-0.5 bg-yellow-200/80 text-yellow-800 rounded-full text-[11px] font-bold active:scale-95"
+                            onClick={() => handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true })}
+                            className="px-2.5 py-0.5 bg-yellow-200/80 text-yellow-800 rounded-full text-[11px] font-bold active:scale-95"
                         >
-                          结束
+                            结束
                         </button>
                     </div>
                 )}
@@ -2290,7 +2353,7 @@ const Chat: React.FC = () => {
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
                     </div>
                 )}
-                
+
                 <ChatInputArea
                     input={input} setInput={handleInputChange}
                     isTyping={isTyping} selectionMode={selectionMode}
@@ -2306,6 +2369,7 @@ const Chat: React.FC = () => {
                     onRemoveTheme={removeCustomTheme} activeThemeId={currentThemeId}
                     onPanelAction={handlePanelAction}
                     onImageSelect={handleImageSelect}
+                    onFileSelect={handleFileSelect} // <--- 新增加这一行对接！
                     isSummarizing={isSummarizing}
                     categories={visibleCategories}
                     activeCategory={activeCategory}
@@ -2395,9 +2459,9 @@ const Chat: React.FC = () => {
                 isOpen={personalityRescue.open}
                 title={
                     personalityRescue.open && personalityRescue.phase === 'rescuing' ? '糯米鸡抢救中…' :
-                    personalityRescue.open && personalityRescue.phase === 'done' ? '抢救完成！' :
-                    personalityRescue.open && personalityRescue.phase === 'failed' ? '抢救失败' :
-                    '糯米鸡抢救中…'
+                        personalityRescue.open && personalityRescue.phase === 'done' ? '抢救完成！' :
+                            personalityRescue.open && personalityRescue.phase === 'failed' ? '抢救失败' :
+                                '糯米鸡抢救中…'
                 }
                 onClose={() => {
                     // rescuing 阶段不给关，必须看到结果；其它阶段允许关闭
@@ -2431,10 +2495,10 @@ const Chat: React.FC = () => {
                 {personalityRescue.open && personalityRescue.phase === 'done' && (() => {
                     const styleLabel =
                         personalityRescue.result.style === 'emotional' ? '情感型' :
-                        personalityRescue.result.style === 'narrative' ? '叙事型' :
-                        personalityRescue.result.style === 'imagery' ? '意象型' :
-                        personalityRescue.result.style === 'analytical' ? '分析型' :
-                        personalityRescue.result.style;
+                            personalityRescue.result.style === 'narrative' ? '叙事型' :
+                                personalityRescue.result.style === 'imagery' ? '意象型' :
+                                    personalityRescue.result.style === 'analytical' ? '分析型' :
+                                        personalityRescue.result.style;
                     return (
                         <div className="space-y-3 py-2">
                             <p className="text-xs text-slate-400 text-center">

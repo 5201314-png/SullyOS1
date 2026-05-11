@@ -1,6 +1,6 @@
 
 import React, { useRef, useState } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Code, Brain } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Code, Brain, Paperclip, CornersOut } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
@@ -26,6 +26,7 @@ interface ChatInputAreaProps {
     activeThemeId: string;
     onPanelAction: (type: string, payload?: any) => void;
     onImageSelect: (file: File, isOriginal?: boolean) => void;
+    onFileSelect?: (file: File) => void; // <--- 新增这行
     isSummarizing: boolean;
     // Categories Support
     categories?: EmojiCategory[];
@@ -53,7 +54,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
     emojis, characters, activeCharacterId, onCharSelect,
     customThemes, onUpdateTheme, onRemoveTheme, activeThemeId,
-    onPanelAction, onImageSelect, isSummarizing,
+    onPanelAction, onImageSelect, onFileSelect, isSummarizing,
     categories = [], activeCategory = 'default',
     onReroll, canReroll,
     isProactiveActive,
@@ -66,6 +67,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     chromeStyle = 'soft',
 }) => {
     const chatImageInputRef = useRef<HTMLInputElement>(null);
+    const chatFileInputRef = useRef<HTMLInputElement>(null); // <--- 就是新增这一行！用来当地基的
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [actionsPage, setActionsPage] = useState<0 | 1>(0);
     const [isOriginalImage, setIsOriginalImage] = useState(false);
@@ -477,18 +479,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     <span className="text-xs font-bold">相册</span>
                                 </button>
                                 <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
-                                {/* 这里是原图选项 */}
-                                <div className="col-span-4 flex items-center justify-center mt-2">
-                                    <label className="flex items-center space-x-2 text-xs text-black dark:text-white/70 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={isOriginalImage}
-                                            onChange={(e) => setIsOriginalImage(e.target.checked)}
-                                            className="w-3 h-3 rounded border-black/20 dark:border-white/20 bg-transparent"
-                                        />
-                                        <span>发送原图 (不压缩)</span>
-                                    </label>
-                                </div>
+                                {/* 发送原图 绝美发光按钮 */}
+                                <button
+                                    onClick={() => setIsOriginalImage(!isOriginalImage)}
+                                    className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                                >
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${isOriginalImage
+                                        ? (isDiscordStyle ? 'bg-rose-500/20 text-rose-300 border-rose-400/40' : 'bg-rose-100 text-rose-600 border-rose-200')
+                                        : (isDiscordStyle ? 'bg-slate-800 text-rose-300 border-rose-400/20' : 'bg-rose-50 text-rose-500 border-rose-100')
+                                        }`}>
+                                        <CornersOut className="w-6 h-6" weight="bold" />
+                                        {isOriginalImage && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-rose-400 border-slate-900' : 'bg-rose-500 border-white'}`} />}
+                                    </div>
+                                    <span className="text-xs font-bold">{isOriginalImage ? '压缩已关' : '压缩已开'}</span>
+                                </button>
                                 {/* Regenerate Button */}
                                 <button onClick={onReroll} disabled={!canReroll} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${canReroll ? (isDiscordStyle ? 'text-slate-200' : 'text-slate-600') : 'text-slate-300 opacity-50'}`}>
                                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${canReroll ? (isDiscordStyle ? 'bg-slate-800 text-emerald-300 border-emerald-400/20' : 'bg-emerald-50 text-emerald-400 border-emerald-100') : (isDiscordStyle ? 'bg-slate-800 text-slate-600 border-white/10' : 'bg-slate-50 text-slate-300 border-slate-100')}`}>
@@ -528,8 +532,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${isDiscordStyle ? 'text-slate-200' : 'text-slate-600'} ${!mcdConfigured ? 'opacity-50' : ''}`}
                                 >
                                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${mcdActivated
-                                            ? (isDiscordStyle ? 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40' : 'bg-yellow-100 text-yellow-700 border-yellow-300')
-                                            : (isDiscordStyle ? 'bg-slate-800 text-yellow-300 border-yellow-400/20' : 'bg-yellow-50 text-yellow-600 border-yellow-100')
+                                        ? (isDiscordStyle ? 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40' : 'bg-yellow-100 text-yellow-700 border-yellow-300')
+                                        : (isDiscordStyle ? 'bg-slate-800 text-yellow-300 border-yellow-400/20' : 'bg-yellow-50 text-yellow-600 border-yellow-100')
                                         }`}>
                                         <ForkKnife className="w-6 h-6" weight="bold" />
                                         {mcdActivated && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-yellow-300 border-slate-900' : 'bg-yellow-500 border-white'}`} />}
@@ -544,8 +548,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
                                 >
                                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${htmlModeEnabled
-                                            ? (isDiscordStyle ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/40' : 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200')
-                                            : (isDiscordStyle ? 'bg-slate-800 text-fuchsia-300 border-fuchsia-400/20' : 'bg-fuchsia-50 text-fuchsia-500 border-fuchsia-100')
+                                        ? (isDiscordStyle ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/40' : 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200')
+                                        : (isDiscordStyle ? 'bg-slate-800 text-fuchsia-300 border-fuchsia-400/20' : 'bg-fuchsia-50 text-fuchsia-500 border-fuchsia-100')
                                         }`}>
                                         <Code className="w-6 h-6" weight="bold" />
                                         {htmlModeEnabled && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-fuchsia-400 border-slate-900' : 'bg-fuchsia-500 border-white'}`} />}
@@ -559,14 +563,28 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
                                 >
                                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${showThinkingChain
-                                            ? (isDiscordStyle ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/40' : 'bg-indigo-100 text-indigo-600 border-indigo-200')
-                                            : (isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100')
+                                        ? (isDiscordStyle ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/40' : 'bg-indigo-100 text-indigo-600 border-indigo-200')
+                                        : (isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100')
                                         }`}>
                                         <Brain className="w-6 h-6" weight="bold" />
                                         {showThinkingChain && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-indigo-400 border-slate-900' : 'bg-indigo-500 border-white'}`} />}
                                     </div>
                                     <span className="text-xs font-bold">{showThinkingChain ? '思考已开' : '展示思考'}</span>
                                 </button>
+                                {/* 传文件按钮 */}
+                                <button
+                                    onClick={() => chatFileInputRef.current?.click()}
+                                    className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                                >
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-teal-300 border-teal-400/20' : 'bg-teal-50 text-teal-500 border-teal-100'}`}>
+                                        <Paperclip className="w-6 h-6" weight="bold" />
+                                    </div><span className="text-xs font-bold">传文件</span>
+                                </button>
+                                <input type="file" ref={chatFileInputRef} className="hidden" onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file && onFileSelect) onFileSelect(file);
+                                    if (e.target) e.target.value = '';
+                                }} />
                             </div>
 
                             {/* 翻页指示器 */}
