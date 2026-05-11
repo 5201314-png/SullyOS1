@@ -824,9 +824,9 @@ const Chat: React.FC = () => {
         triggerAI(newHistory);
     };
 
-    const handleImageSelect = async (file: File) => {
+    const handleImageSelect = async (file: File, isOriginal?: boolean) => {onst handleImageSelect = async (file: File) => {
         try {
-            const base64 = await processImage(file, { maxWidth: 600, quality: 0.6, forceJpeg: true });
+            const base64 = await processImage(file, isOriginal ? { skipCompression: true } : { maxWidth: 600, quality: 0.6, forceJpeg: true });
             setShowPanel('none');
             await handleSendText(base64, 'image');
         } catch (err: any) {
