@@ -156,7 +156,7 @@ export const RealtimeContextManager = {
     fetchBraveNews: async (apiKey: string): Promise<NewsItem[]> => {
         try {
             // 使用自建的 Cloudflare Worker 代理
-            const workerUrl = 'https://sullymeow.ccwu.cc/news?q=热点新闻&count=5&country=cn';
+            const workerUrl = 'https://my-sully-api.3142140243.workers.dev//news?q=热点新闻&count=5&country=cn';
 
             const response = await fetch(workerUrl, {
                 headers: {
@@ -434,7 +434,7 @@ export const RealtimeContextManager = {
 
         try {
             // 使用自建的 Cloudflare Worker 代理
-            const workerUrl = `https://sullymeow.ccwu.cc/search?q=${encodeURIComponent(query)}&count=5`;
+            const workerUrl = `https://my-sully-api.3142140243.workers.dev//search?q=${encodeURIComponent(query)}&count=5`;
 
             const response = await fetch(workerUrl, {
                 method: 'GET',
@@ -509,7 +509,7 @@ export interface DiaryPreview {
 export const NotionManager = {
 
     // Worker 代理地址
-    WORKER_URL: 'https://sullymeow.ccwu.cc',
+    WORKER_URL: 'https://my-sully-api.3142140243.workers.dev/',
 
     /**
      * 测试 Notion 连接（通过 Worker 代理）
@@ -1497,7 +1497,7 @@ function formatFeishuDiaryContent(content: string, mood?: string, characterName?
 
 export const FeishuManager = {
 
-    WORKER_URL: 'https://sullymeow.ccwu.cc',
+    WORKER_URL: 'https://my-sully-api.3142140243.workers.dev/',
 
     /**
      * 获取飞书 tenant_access_token（通过 Worker 代理，带缓存）

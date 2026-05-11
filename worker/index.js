@@ -730,7 +730,7 @@ function buildCacheKey(action, body, cookieBucket) {
   const sorted = [...p.entries()].sort(([a], [b]) => a.localeCompare(b));
   const qs = sorted.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   return new Request(
-    `https://sully-netease-cache.internal/${action}/${cookieBucket}?${qs}`,
+    `https://etease-cache.internal/${action}/${cookieBucket}?${qs}`,
     { method: 'GET' }
   );
 }

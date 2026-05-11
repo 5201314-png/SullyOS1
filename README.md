@@ -196,7 +196,7 @@ A: 就是我也不知道什么意思。系统正在哈我。
 
 虽然项目是 local-first，但有几个功能绕不开代理/签名/跨域，所以走了一个 Cloudflare Worker（下面简称 **sfworker**，地址是 `sully-n.qegj567.workers.dev`）。你 fork 下来直接跑，请求会打在我账号上——**流量和额度都是我的**，用多了我会被 CF 掐着脖子关进小黑屋，你也会莫名其妙 429。所以二改请务必换成你自己的。
 
-**目前硬编码了 sfworker 的地方**（搜 `workers.dev` 就能全找出来）：
+**目前硬编码了 sfworker 的地方**（搜 `sully-n.qegj567.workers.dev` 就能全找出来）：
 
 | 文件 | 功能 |
 |------|------|
