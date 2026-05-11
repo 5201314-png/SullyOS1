@@ -1,6 +1,5 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
