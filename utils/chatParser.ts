@@ -1,4 +1,3 @@
-
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { CharacterProfile, CharPlaylistSong } from '../types';
@@ -187,6 +186,12 @@ export const ChatParser = {
                     }
                 } catch (e) { console.log("Notification schedule skipped (web mode)"); }
                 addToast(`${charName} 似乎打算一会儿找你...`, 'info');
+                // 🌟 第三期工程：真·云端闹钟发射器 🌟
+                fetch('https://my-sully-api.3142140243.workers.dev/api/proactive/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'alarm', charId, msgContent, dueTime })
+                }).catch(e => console.log('Cloudflare alarm sync failed', e));
             }
         }
         content = content.replace(scheduleRegex, '').trim();
