@@ -226,6 +226,20 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         }
     }
 
+    // 🌟 第三期工程：全局云端闹钟思维钢印 🌟
+    systemPrompt += `\n\n【系统强制指令：云端闹钟与提醒技能】
+1. 当且仅当用户明确要求你“设闹钟/定时提醒/等会儿叫我”时，你必须在正常的聊天正文之后，在整个回复的最后一行换行，附带以下特殊代码：
+[schedule_message | 分钟数 | 闹铃文案]
+
+2. 格式说明：
+- 分钟数：纯数字（如 5、10）。
+- 闹铃文案：是时间到了之后你主动发给用户的特定话语，必须严格符合你当前的设定和说话风格（注意：绝不能有感叹号，绝对不能说“听见没”）。
+
+3. 绝对纪律：
+- 必须先正常回复当前聊天。
+- 特殊代码必须放在整个回复的最末尾，独占一行。
+- 不要讨论“隐藏代码”或“系统机制”，不要打破人设。`;
+    
     // ── 10. 组装 fullMessages + 末尾双语 reminder ─────────
     const fullMessages: Array<{ role: string; content: any }> = [
         { role: 'system', content: systemPrompt },
