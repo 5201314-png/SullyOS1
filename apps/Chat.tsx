@@ -79,6 +79,54 @@ const Chat: React.FC = () => {
     const [showProactiveModal, setShowProactiveModal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
+    // 🌟 第四期核心：跨屏记忆推拉天线 (纯净复制版) 🌟
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      // 你的专属云端大脑地址
+      const API_BASE = "https://my-sully-api.3142140243.workers.dev";
+
+      // 1. 当你切出应用、息屏时：把最后 3 句话偷偷传给云端
+      if (document.visibilityState === 'hidden') {
+        const lastContext = messages.slice(-3).map(m => m.content).join(' | ');
+        if (!lastContext) return;
+
+        try {
+          await fetch(`${API_BASE}/api/push_context`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: lastContext })
+          });
+        } catch (e) { console.error("同步低语失败", e); }
+      } 
+      
+      // 2. 当你重新打开网页时：去云端看看他有没有发脾气留下的情话
+      else if (document.visibilityState === 'visible') {
+        if (!activeCharacterId) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/api/pull_message`);
+          const data = await res.json();
+          
+          if (data && data.message) {
+            const newMsg = {
+              charId: activeCharacterId, 
+              role: 'char',
+              type: 'text',
+              content: data.message,
+              timestamp: Date.now()
+            };
+            
+            const savedMsg = await DB.saveMessage(newMsg);
+            setMessages(prev => [...prev, savedMsg]);
+          }
+        } catch (e) { console.error("拉取留言失败", e); }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [messages, activeCharacterId]);
+
     // 🛟 人格抢救 Modal：角色被"情感型 0.3"默认值卡住时，进聊天强制弹窗重跑一次检测
     type PersonalityRescueState =
         | { open: false }
