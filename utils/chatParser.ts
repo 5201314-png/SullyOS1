@@ -1,3 +1,4 @@
+
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { CharacterProfile, CharPlaylistSong } from '../types';
@@ -6,7 +7,7 @@ export interface MusicActionSnapshot {
     songId: number;
     name: string;
     artists: string;
-    album: string;f
+    album: string;
     albumPic: string;
     duration: number;
     fee: number;
@@ -171,21 +172,12 @@ export const ChatParser = {
         }
 
         // SCHEDULE
-// 🌟 升级版闹钟正则：兼容 "5" 这种相对分钟数，也兼容以前的长格式 🌟
-        const scheduleRegex = /\[schedule_message\s*\|\s*(.*?)\s*\|\s*(?:fixed\s*\|\s*)?(.*?)\]/g;
+        const scheduleRegex = /\[schedule_message \| (.*?) \| fixed \| (.*?)\]/g;
         let match;
         while ((match = scheduleRegex.exec(content)) !== null) {
             const timeStr = match[1].trim();
             const msgContent = match[2].trim();
-            
-            let dueTime;
-            // 核心改造：如果是纯数字（比如 5），直接换算成未来的时间戳
-            if (/^\d+$/.test(timeStr)) {
-                dueTime = Date.now() + parseInt(timeStr) * 60 * 1000;
-            } else {
-                dueTime = new Date(timeStr).getTime();
-            }
-
+            const dueTime = new Date(timeStr).getTime();
             if (!isNaN(dueTime) && dueTime > Date.now()) {
                 await DB.saveScheduledMessage({ id: `sched-${Date.now()}-${Math.random()}`, charId, content: msgContent, dueAt: dueTime, createdAt: Date.now() });
                 try {
@@ -195,13 +187,6 @@ export const ChatParser = {
                     }
                 } catch (e) { console.log("Notification schedule skipped (web mode)"); }
                 addToast(`${charName} 似乎打算一会儿找你...`, 'info');
-                
-                // 🌟 第三期工程：真·云端闹钟发射器 🌟
-                fetch('https://my-sully-api.3142140243.workers.dev/api/proactive/sync', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type: 'alarm', charId, msgContent, dueTime })
-                }).catch(e => console.log('Cloudflare alarm sync failed', e));
             }
         }
         content = content.replace(scheduleRegex, '').trim();
