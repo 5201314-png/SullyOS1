@@ -108,6 +108,7 @@ const Chat: React.FC = () => {
           const data = await res.json();
           
           if (data && data.message) {
+           // 组装一条新消息
             const newMsg = {
               charId: activeCharacterId, 
               role: 'char',
@@ -116,8 +117,11 @@ const Chat: React.FC = () => {
               timestamp: Date.now()
             };
             
-            const savedMsg = await DB.saveMessage(newMsg);
-            setMessages(prev => [...prev, savedMsg]);
+            // 存进数据库，拿到生成的数字 ID
+            const newId = await DB.saveMessage(newMsg);
+            
+            // 把完整的对象塞进屏幕里！
+            setMessages(prev => [...prev, { ...newMsg, id: newId }]);
           }
         } catch (e) { console.error("拉取留言失败", e); }
       }
