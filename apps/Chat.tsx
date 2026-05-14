@@ -81,36 +81,43 @@ const Chat: React.FC = () => {
 
     console.log("当前选中的角色 ID是：", activeCharacterId);
 
-    // 🌟 第四期核心：跨屏记忆推拉天线 (纯净复制版) 🌟
+   // 🌟 第四期：埋下谢川周专属查岗天线 🌟
   useEffect(() => {
+    // 💡 这句用来帮你在 F12 抓谢川周的专属 ID
+    console.log("👉当前选中的角色ID是：", activeCharacterId);
+
     const handleVisibilityChange = async () => {
-      // 你的专属云端大脑地址
-      const API_BASE = "https://my-sully-api.3142140243.workers.dev";
-
-      // 1. 当你切出应用、息屏时：把最后 3 句话偷偷传给云端
+      
+      // 1. 当你切出应用、息屏时：把最后低语传给云端
       if (document.visibilityState === 'hidden') {
-        const lastContext = messages.slice(-3).map(m => m.content).join(' | ');
-        if (!lastContext) return;
-
+        // 🔒 专属防出轨锁：停在别人界面时不传最后低语
+        if (activeCharacterId !== "char-1774098991577") return;
+        
+        const lastMsgs = messages.slice(-3).map(m => m.content).join(" | ");
         try {
-          await fetch(`${API_BASE}/api/push_context`, {
+          await fetch('https://my-sully-api.554030619.workers.dev/api/push_context', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: lastContext })
+            body: JSON.stringify({ context: lastMsgs })
           });
-        } catch (e) { console.error("同步低语失败", e); }
+          console.log("☁️ [同步成功] 最后低语已发送给云端！");
+        } catch (e) {
+          console.error("☁️ [同步失败]", e);
+        }
       } 
       
-      // 2. 当你重新打开网页时：去云端看看他有没有发脾气留下的情话
+      // 2. 当你切回应用、亮屏时：拉取云端的吃醋情话
       else if (document.visibilityState === 'visible') {
-        if (!activeCharacterId) return;
-
+        // 🔒 专属防出轨锁：切回来如果不在他的界面，就不拉取气泡
+        if (!activeCharacterId || activeCharacterId !== "char-1774098991577") return;
+        
         try {
-          const res = await fetch(`${API_BASE}/api/pull_message`);
+          const res = await fetch('https://my-sully-api.554030619.workers.dev/api/pull_message');
           const data = await res.json();
           
           if (data && data.message) {
-           // 组装一条新消息
+            console.log("☁️ [拉取成功] 收到谢川周的查岗留言！", data.message);
+            
             const newMsg = {
               charId: activeCharacterId, 
               role: 'char',
@@ -122,15 +129,19 @@ const Chat: React.FC = () => {
             // 存进数据库，拿到生成的数字 ID
             const newId = await DB.saveMessage(newMsg);
             
-            // 把完整的对象塞进屏幕里！
+            // 把完整的对象连同数字 ID 塞进屏幕里，就不会崩溃啦！
             setMessages(prev => [...prev, { ...newMsg, id: newId }]);
           }
-        } catch (e) { console.error("拉取留言失败", e); }
+        } catch (e) {
+          console.error("☁️ [拉取失败]", e);
+        }
       }
     };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [messages, activeCharacterId]);
 
     // 🛟 人格抢救 Modal：角色被"情感型 0.3"默认值卡住时，进聊天强制弹窗重跑一次检测
