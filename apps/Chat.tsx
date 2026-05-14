@@ -81,18 +81,43 @@ const Chat: React.FC = () => {
 
     console.log("当前选中的角色 ID是：", activeCharacterId);
 
-   // 🌟 第四期：埋下谢川周专属查岗天线 🌟
+  // 🌟 第四期：埋下全天候霸总天线（进门必查岗版） 🌟
   useEffect(() => {
-    // 💡 这句用来帮你在 F12 抓谢川周的专属 ID
-    console.log("👉当前选中的角色ID是：", activeCharacterId);
+    
+    // 💡 这是一个专门用来拉取云端留言的“查收信件”动作
+    const checkCloudMessage = async () => {
+      if (!activeCharacterId) return; // 没进门（在主页）绝不说话！
+      
+      try {
+        const res = await fetch('https://my-sully-api.554030619.workers.dev/api/pull_message');
+        const data = await res.json();
+        
+        if (data && data.message) {
+          console.log("☁️ [拉取成功] 收到霸总的吃醋留言！", data.message);
+          
+          const newMsg = {
+            charId: activeCharacterId, 
+            role: 'char',
+            type: 'text',
+            content: data.message,
+            timestamp: Date.now()
+          };
+          
+          const newId = await DB.saveMessage(newMsg);
+          setMessages(prev => [...prev, { ...newMsg, id: newId }]);
+        }
+      } catch (e) {
+        console.error("☁️ [拉取失败]", e);
+      }
+    };
+
+    // 🌟 核心剧情机制：只要你一点进聊天框（进门），立刻查看有没有他的留言！
+    checkCloudMessage();
 
     const handleVisibilityChange = async () => {
       
-      // 1. 当你切出应用、息屏时：把最后低语传给云端
+      // 1. 息屏时：偷偷传话。在主页息屏传的就是空话，他会因为你“不辞而别”发火！
       if (document.visibilityState === 'hidden') {
-        // 🔒 专属防出轨锁：停在别人界面时不传最后低语
-        if (activeCharacterId !== "char-1774098991577") return;
-        
         const lastMsgs = messages.slice(-3).map(m => m.content).join(" | ");
         try {
           await fetch('https://my-sully-api.554030619.workers.dev/api/push_context', {
@@ -100,41 +125,13 @@ const Chat: React.FC = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ context: lastMsgs })
           });
-          console.log("☁️ [同步成功] 最后低语已发送给云端！");
-        } catch (e) {
-          console.error("☁️ [同步失败]", e);
-        }
+          console.log("☁️ [同步成功] 最后状态已发给云端！");
+        } catch (e) {}
       } 
       
-      // 2. 当你切回应用、亮屏时：拉取云端的吃醋情话
+      // 2. 亮屏时：如果你正好停在他的聊天界面，立刻拉取
       else if (document.visibilityState === 'visible') {
-        // 🔒 专属防出轨锁：切回来如果不在他的界面，就不拉取气泡
-        if (!activeCharacterId || activeCharacterId !== "char-1774098991577") return;
-        
-        try {
-          const res = await fetch('https://my-sully-api.554030619.workers.dev/api/pull_message');
-          const data = await res.json();
-          
-          if (data && data.message) {
-            console.log("☁️ [拉取成功] 收到谢川周的查岗留言！", data.message);
-            
-            const newMsg = {
-              charId: activeCharacterId, 
-              role: 'char',
-              type: 'text',
-              content: data.message,
-              timestamp: Date.now()
-            };
-            
-            // 存进数据库，拿到生成的数字 ID
-            const newId = await DB.saveMessage(newMsg);
-            
-            // 把完整的对象连同数字 ID 塞进屏幕里，就不会崩溃啦！
-            setMessages(prev => [...prev, { ...newMsg, id: newId }]);
-          }
-        } catch (e) {
-          console.error("☁️ [拉取失败]", e);
-        }
+        checkCloudMessage();
       }
     };
 
