@@ -79,68 +79,6 @@ const Chat: React.FC = () => {
     const [showProactiveModal, setShowProactiveModal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
-    console.log("当前选中的角色 ID是：", activeCharacterId);
-
-  // 🌟 第四期：埋下全天候霸总天线（进门必查岗版） 🌟
-  useEffect(() => {
-    
-    // 💡 这是一个专门用来拉取云端留言的“查收信件”动作
-    const checkCloudMessage = async () => {
-      if (!activeCharacterId) return; // 没进门（在主页）绝不说话！
-      
-      try {
-        const res = await fetch('https://my-sully-api.554030619.workers.dev/api/pull_message');
-        const data = await res.json();
-        
-        if (data && data.message) {
-          console.log("☁️ [拉取成功] 收到霸总的吃醋留言！", data.message);
-          
-          const newMsg = {
-            charId: activeCharacterId, 
-            role: 'char',
-            type: 'text',
-            content: data.message,
-            timestamp: Date.now()
-          };
-          
-          const newId = await DB.saveMessage(newMsg);
-          setMessages(prev => [...prev, { ...newMsg, id: newId }]);
-        }
-      } catch (e) {
-        console.error("☁️ [拉取失败]", e);
-      }
-    };
-
-    // 🌟 核心剧情机制：只要你一点进聊天框（进门），立刻查看有没有他的留言！
-    checkCloudMessage();
-
-    const handleVisibilityChange = async () => {
-      
-      // 1. 息屏时：偷偷传话。在主页息屏传的就是空话，他会因为你“不辞而别”发火！
-      if (document.visibilityState === 'hidden') {
-        const lastMsgs = messages.slice(-3).map(m => m.content).join(" | ");
-        try {
-          await fetch('https://my-sully-api.554030619.workers.dev/api/push_context', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: lastMsgs })
-          });
-          console.log("☁️ [同步成功] 最后状态已发给云端！");
-        } catch (e) {}
-      } 
-      
-      // 2. 亮屏时：如果你正好停在他的聊天界面，立刻拉取
-      else if (document.visibilityState === 'visible') {
-        checkCloudMessage();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [messages, activeCharacterId]);
-
     // 🛟 人格抢救 Modal：角色被"情感型 0.3"默认值卡住时，进聊天强制弹窗重跑一次检测
     type PersonalityRescueState =
         | { open: false }
