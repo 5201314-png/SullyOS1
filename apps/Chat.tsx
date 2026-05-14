@@ -79,6 +79,8 @@ const Chat: React.FC = () => {
     const [showProactiveModal, setShowProactiveModal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
+    console.log("当前选中的角色 ID是：", activeCharacterId);
+
     // 🌟 第四期核心：跨屏记忆推拉天线 (纯净复制版) 🌟
   useEffect(() => {
     const handleVisibilityChange = async () => {
