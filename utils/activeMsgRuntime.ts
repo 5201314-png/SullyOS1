@@ -758,14 +758,15 @@ const processInboxMessageWithPostProcessing = async (
     // 这条 push 拆出的每条气泡共用一个时间戳 (跟降级存原稿路径同口径), 见
     // resolveInboxPersistTimestampForMessage。
     messageTimestamp: persistTimestamp,
-    // 两种情况跳过拟人打字延迟、一次性回填，共同点是「用户已经读过这句话了，再演一遍
+    // 三种情况跳过拟人打字延迟、一次性回填，共同点是「用户已经读过这句话了，再演一遍
     // 打字过程只剩干等」：
     //   1. 补收：内容几小时前就在云端生成完了，慢放期间用户插的话还会把时间戳倒挂的
-    //      口子撑开（见 resolveBackfillTimestamp）。
-    //   2. 送达时人不在场：系统通知已经把整句话完整显示过，他是看着通知点进来的。
+    //      口子撑开（见 resolveBackfillTimestamp）。判据是补收路径盖的标记，**不是**
+    //      到达时间——那个会被补收自己改写（见 isOutboxBackfill 的说明）。
+    //   2. 在收件箱里躺了一阵才被捞出来的。
+    //   3. 送达时人不在场：系统通知已经把整句话完整显示过，他是看着通知点进来的。
     // App 在前台时收到的实时消息照旧慢放——那才是「角色正在你眼前打字」的场景。
-    instantRender: !isFreshInboxDelivery(message.receivedAt, Date.now())
-      || wasDeliveredWhileAway(message.receivedAt),
+    instantRender: shouldRenderInstantly(message.metadata, message.receivedAt, Date.now()),
   });
 
   // ─── 即时对话（amsg2）的情绪评估结果 ───
@@ -1217,6 +1218,19 @@ async function runPushTailPipeline(
 export const INBOX_FRESH_DELIVERY_WINDOW_MS = 2 * 60_000;
 
 /**
+ * 这条消息是不是从云端账本补收回来的（true = 一次性回填，不演打字）。
+ *
+ * **判据是补收路径写库时盖的那个标记，不是消息上的到达时间。** 补收在写库时会把整批
+ * 消息的到达时间统一改写成「现在」（一次 Date.now() 全批共用），所以拿到达时间去问
+ * 「这条是不是刚到的」，答案永远是「刚到」——补收就这么把自己伪装成了实时消息，然后
+ * 一条条演打字，而它的内容其实早就在系统通知里被完整读过了。
+ * 这个标记只有补收路径带，SW 直送的那份刻意不带（见 outboxPushToInbox）。
+ * 纯函数，边界值见 activeMsgRuntime.test.ts。
+ */
+export const isOutboxBackfill = (metadata: Record<string, any> | undefined): boolean =>
+  metadata?.amsgOutboxBackfill === true;
+
+/**
  * 这条 inbox 消息是不是刚落到设备上的（true = 保留打字节奏，false = 一次性回填）。
  *
  * 判据用 receivedAt（消息落到这台设备的时刻）而不是 sentAt：它剔除了云端到设备之间的
@@ -1266,6 +1280,30 @@ export const wasDeliveredWhileAway = (
   if (!Number.isFinite(becameVisibleAt) || becameVisibleAt <= 0) return false;
   return receivedAt < becameVisibleAt;
 };
+
+/**
+ * 这条要不要跳过拟人打字慢放、一次性回填（true = 跳过）。
+ *
+ * 三条判据任一成立就跳过，共同点是「用户已经读过这句话了，再演一遍打字只剩干等」：
+ *   1. 从云端账本补收回来的——内容早就生成完、通知也念过了；
+ *   2. 在收件箱里躺过一阵才被捞出来的；
+ *   3. 送达那会儿人不在页面上，是看着系统通知点进来的。
+ *
+ * 第 1 条**必须单独判**，不能指望第 2、3 条顺带捞到：补收在写库时会把整批消息的到达
+ * 时间统一改写成「现在」，而第 2、3 条问的都是到达时间——于是它们双双得出「刚到的、
+ * 用户还在场」，补收就这么把自己伪装成了实时消息。线上那八条补收回来的消息一条条重演
+ * 打字，就是这么来的。
+ * 纯函数，边界值见 activeMsgRuntime.test.ts。
+ */
+export const shouldRenderInstantly = (
+  metadata: Record<string, any> | undefined,
+  receivedAt: number | undefined,
+  now: number,
+  becameVisibleAt?: number,
+): boolean =>
+  isOutboxBackfill(metadata)
+  || !isFreshInboxDelivery(receivedAt, now)
+  || wasDeliveredWhileAway(receivedAt, becameVisibleAt);
 
 /**
  * 算一条 inbox 消息落库该用的时间戳：一律取 sentAt（云端真正把这句话发出去的那一刻）。
@@ -1644,7 +1682,8 @@ export type FlushTrigger =
   | '手动补收'        // 用户点「找回没收到的消息」
   | '轮询补收'        // 即时对话 60 秒点名顺手把账本上的捞回来
   | '原生收件箱'      // 原生壳把消息塞进收件箱后触发
-  | '原生推送';       // 原生壳收到推送后触发
+  | '原生推送'       // 原生壳收到推送后触发
+  | '本地巡查';       // 前台每几秒数一眼本地收件箱，自己发现躺着的消息
 
 const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> => {
   const pendingMessages = await ActiveMsgStore.consumeInboxMessages();
@@ -2118,6 +2157,58 @@ export const flushInboxToChat = (trigger: FlushTrigger): Promise<string[]> => {
   });
   flushChain = next;
   return next;
+};
+
+// ─── 前台收件箱守望 ───
+//
+// Service Worker 把消息存进收件箱后会喊页面一声，但那一声在 iOS 上经常喊不到：App 不在
+// 最前台时，SW 拿到的「当前有哪些页面」名单直接是空的，喊了也没人听见，消息就那么躺在
+// 库里，没有任何人记得它还没上屏。（线上实测：一轮 8 条推送，8 次全是空名单；同一台
+// 设备同一个 SW，页面在前台时探测却是几毫秒就回。）
+//
+// 所以这里不再等人来喊，改成页面自己隔几秒数一眼收件箱。**库里有没有货，本身就是那个
+// 「还有话没传到」的记号**，不需要 SW 额外再留什么标记。SW 那一声从此只是加速：喊到了
+// 更快，喊不到也不影响消息能不能上屏。
+const LOCAL_INBOX_WATCH_INTERVAL_MS = 3_000;
+let localInboxWatchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 数一眼本地收件箱，有货才冲刷。**全程不走网络**——跟「去云端账本捞一圈」
+ * （drainOutboxAndFlush，要分页拉、还要逐条查任务状态）完全是两回事，别混。
+ *
+ * 空表时只有一次 IndexedDB count，所以敢几秒跑一趟；数出来是 0 就直接走人，连 trace
+ * 都不记——否则几秒一条空转记录，几分钟就能把排障真正要看的那些顶出缓冲区。
+ *
+ * （导出仅为让 activeMsgRuntime.test.ts 直接钉住「空表不动手、有货才冲刷」；
+ *   运行时入口是下面的 scheduleLocalInboxWatch 和 init 里挂的那两个唤醒事件。）
+ */
+export const sweepLocalInbox = async (): Promise<void> => {
+  try {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    const pending = await ActiveMsgStore.countInboxMessages();
+    if (pending <= 0) return;
+    await flushInboxToChat('本地巡查');
+  } catch (e) {
+    log.warn('本地收件箱巡查没跑成（下一跳还会再来）', { error: e });
+  }
+};
+
+/**
+ * 把巡查排到下一跳。**不管页面可不可见都排下去**，这是故意的：
+ *
+ * iOS 会把后台的页面整个挂起，挂起期间定时器不走、事件也不发，恢复时既不保证有
+ * visibilitychange 也不保证有别的信号。只要这条链一直排着，页面一旦重新跑起来，被冻住
+ * 的那一跳立刻就补上了——正确性不押在「某个事件必须送达」上。不可见时 sweepLocalInbox
+ * 自己会走人，浏览器也会把后台定时器节流，空转不费什么。
+ *
+ * 上一跳跑完才排下一跳（而不是固定间隔硬发），免得冲刷本身慢放二十秒时排队堆积。
+ */
+const scheduleLocalInboxWatch = (): void => {
+  if (localInboxWatchTimer != null) clearTimeout(localInboxWatchTimer);
+  localInboxWatchTimer = setTimeout(() => {
+    localInboxWatchTimer = null;
+    void sweepLocalInbox().finally(() => scheduleLocalInboxWatch());
+  }, LOCAL_INBOX_WATCH_INTERVAL_MS);
 };
 
 // Phase 2 Round 2: 真实 tool runner. 启动时排空 + SW postMessage 触发. 失败诊断在 instantToolRunner 内.
@@ -2767,6 +2858,17 @@ export const ActiveMsgRuntime = {
       });
     }
 
+    // 页面「刚活过来」的那一下，立刻数一眼收件箱，不用干等守望的下一跳。
+    // pageshow：iOS 把 App 挂起后恢复、以及 bfcache 前进/后退时会发，而 visibilitychange
+    //   不一定发——线上记录里就有「只见进后台、不见回前台」的断档。
+    // focus：切回窗口或标签页。
+    // 这两个可能跟 visibilitychange 撞在一起重复触发，但收件箱是「取出即删」、冲刷又都
+    // 走同一条串行链，重复最多是多数一次个数，不会把同一条消息演两遍。
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pageshow', () => { void sweepLocalInbox(); });
+      window.addEventListener('focus', () => { void sweepLocalInbox(); });
+    }
+
     // 受理一轮即时对话之后（useChatAI 那边写记录 + 广播），把点名周期排上。
     if (typeof window !== 'undefined') {
       window.addEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, () => scheduleNextInstantChatStatusCheck());
@@ -2808,6 +2910,8 @@ export const ActiveMsgRuntime = {
     void drainPendingDiaries(loadRealtimeConfigFromLocalStorage(), (charId) => {
       window.dispatchEvent(new CustomEvent('active-msg-progress', { detail: { charId } }));
     });
+    // 收件箱守望开跑。放在最后：上面那趟启动冲刷已经把积压清干净了，这里接管后续。
+    scheduleLocalInboxWatch();
     handleDeepLink();
   },
 };

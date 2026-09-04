@@ -32,6 +32,9 @@ import {
   describeMultipartFailure,
   handleInstantErrorPushMessage,
   startLateEmotionPoll,
+  sweepLocalInbox,
+  shouldRenderInstantly,
+  isOutboxBackfill,
 } from './activeMsgRuntime';
 import { MULTIPART_FAILURE_REASON } from '@rei-standard/amsg-shared';
 import * as Analytics from './analytics';
@@ -405,6 +408,106 @@ describe('isFreshInboxDelivery（决定要不要慢放打字节奏）', () => {
 // 的话被一个字一个字重演一遍。慢放的意义是「角色正在你眼前打字」，人不在场时它只剩等待。
 //
 // 反过来，用户本来就开着聊天界面时收到的消息要保留慢放：那才是它想要的场景。
+/**
+ * 这一组守的是线上那条「补收回来的消息还在一条条演打字」。
+ *
+ * 补收在写库时会把整批消息的到达时间统一改写成「现在」，于是原来那两条判据（是不是刚
+ * 到的、送达时人在不在场）问的全是同一个已经被改坏的值，双双得出「刚到、用户在场」，
+ * 补收就把自己伪装成了实时消息。判据必须认补收路径自己盖的标记。
+ */
+describe('shouldRenderInstantly（这条要不要跳过打字慢放）', () => {
+  const NOW = 1_700_000_000_000;
+
+  it('补收回来的：哪怕到达时间被改成现在、用户也算在场，照样一次性回填', () => {
+    const rewritten = NOW;               // 被补收改写过的到达时间
+    const visibleSince = NOW - 60_000;   // 用户一分钟前就在前台 → 会被判成「在场」
+
+    // 先钉死「另外两条判据在这个场景下确实指望不上」——它们俩都投了「保留慢放」：
+    expect(isFreshInboxDelivery(rewritten, NOW)).toBe(true);
+    expect(wasDeliveredWhileAway(rewritten, visibleSince)).toBe(false);
+
+    // 认标记就不会被骗。
+    expect(shouldRenderInstantly({ amsgOutboxBackfill: true }, rewritten, NOW, visibleSince)).toBe(true);
+  });
+
+  it('SW 直送、用户就在前台看着的：保留打字节奏', () => {
+    expect(shouldRenderInstantly({ sessionId: 'sess-1' }, NOW - 3_000, NOW, NOW - 60_000)).toBe(false);
+  });
+
+  it('在收件箱里躺了十分钟才被捞出来的：一次性回填', () => {
+    expect(shouldRenderInstantly(undefined, NOW - 10 * 60_000, NOW, NOW - 60_000)).toBe(true);
+  });
+
+  it('送达时人不在场（系统通知已经念过一遍）：一次性回填', () => {
+    expect(shouldRenderInstantly(undefined, NOW - 3_000, NOW, NOW - 1_000)).toBe(true);
+  });
+
+  it('补收标记只认真的 true，SW 直送那份不带这个键', () => {
+    expect(isOutboxBackfill({ amsgOutboxBackfill: true })).toBe(true);
+    expect(isOutboxBackfill({ sessionId: 'sess-1' })).toBe(false);
+    expect(isOutboxBackfill(undefined)).toBe(false);
+  });
+});
+
+/**
+ * 这一组守的是线上那条「消息早就在手机里了，页面却白等几十秒」。
+ *
+ * iOS 上 App 不在最前台时，Service Worker 拿到的「当前有哪些页面」名单是空的，存完消息
+ * 喊了也没人听见（实测一轮 8 条推送 8 次全空）。所以页面不能等人喊，得自己隔几秒数一眼
+ * 收件箱——但这趟巡查几秒就跑一次，空表时必须什么都不做，否则光是空转的记录就能把排障
+ * 要看的东西全顶出缓冲区。
+ */
+describe('本地收件箱守望', () => {
+  it('库里没货：不动收件箱，也不留下冲刷记录', async () => {
+    await ActiveMsgStore.consumeInboxMessages();  // 先清干净
+    const before = readAllInstantTraces().length;
+    const consume = vi.spyOn(ActiveMsgStore, 'consumeInboxMessages');
+
+    await sweepLocalInbox();
+
+    expect(consume, '空表就该在数完个数之后收手').not.toHaveBeenCalled();
+    expect(readAllInstantTraces().length, '空转不许写进 trace 缓冲').toBe(before);
+    consume.mockRestore();
+  });
+
+  it('库里有货：自己就接着冲刷，不用等任何人来喊', async () => {
+    await ActiveMsgStore.consumeInboxMessages();
+    await ActiveMsgStore.saveInboxMessage({
+      messageId: 'msg-sweep-1',
+      charId: 'char-sweep',
+      charName: '小明',
+      body: '在吗',
+      messageType: 'text',
+      receivedAt: Date.now(),
+      sentAt: Date.now(),
+      metadata: { charId: 'char-sweep' },
+    } as any);
+    // 取空这一步换成空实现：这条守的是「数出有货就往下走」，冲刷内部怎么处理有它自己
+    // 的用例，不该在这里连带跑一遍真管线（还会往后面的用例里漏重试定时器）。
+    const consume = vi.spyOn(ActiveMsgStore, 'consumeInboxMessages').mockResolvedValue([]);
+    try {
+      await sweepLocalInbox();
+      expect(consume, '数出有货就该接着冲刷').toHaveBeenCalled();
+    } finally {
+      consume.mockRestore();
+      await ActiveMsgStore.consumeInboxMessages();  // 别把这条留给后面的用例
+    }
+  });
+
+  it('页面不可见时连数都不数（后台数了也做不了什么）', async () => {
+    const hadDocument = 'document' in globalThis;
+    (globalThis as any).document = { visibilityState: 'hidden' };
+    const count = vi.spyOn(ActiveMsgStore, 'countInboxMessages');
+    try {
+      await sweepLocalInbox();
+      expect(count).not.toHaveBeenCalled();
+    } finally {
+      if (!hadDocument) delete (globalThis as any).document;
+      count.mockRestore();
+    }
+  });
+});
+
 describe('wasDeliveredWhileAway（送达时用户在不在场）', () => {
   const NOW = 1_700_000_000_000;
 
