@@ -415,7 +415,8 @@ const Amsg2DebugPanel: React.FC = () => {
                     </button>
                 </div>
                 {/* 实时通道的体检结论。放在最显眼处是因为这条腿断了之后功能表面上还是好的——
-                    消息照样到，只是每条都白等最多一分钟，用户多半当成「网络卡」而不会来报。 */}
+                    消息照样到，只是慢那么几秒，用户多半当成「网络卡」而不会来报。
+                    iOS 上这条几乎必然是断的：App 不在最前台时 SW 拿到的页面名单就是空的。 */}
                 {health && health.status !== 'idle' && (
                     <div
                         style={{
@@ -426,7 +427,7 @@ const Amsg2DebugPanel: React.FC = () => {
                     >
                         {health.status === 'ok'
                             ? `实时通道正常 · 上次收到 SW 消息 ${hhmmss(new Date(health.lastSwMessageAt!).getTime())}`
-                            : '⚠ 没收到过 SW 消息，消息全靠兜底轮询捞（每条最多白等 60 秒）'}
+                            : '⚠ 没收到过 SW 实时通知，消息靠本地巡查自己捞（会慢几秒，不会丢）'}
                         {health.flushByTrigger.length > 0 && (
                             <span style={{ color: C.dim }}>
                                 {' · 冲刷来源 '}
