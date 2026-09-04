@@ -481,7 +481,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs('char-ts-main');
     expect(msgs.length).toBeGreaterThan(0);
@@ -522,7 +522,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt: occurrenceMs,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs.length, '循环任务不该被防穿帮闸吞掉').toBeGreaterThan(0);
@@ -571,7 +571,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt: occurrenceMs,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await assistantMsgs(charId), '这条消息该被闸吞掉').toHaveLength(0);
     const char = (await DB.getAllCharacters()).find((c) => c.id === charId);
@@ -613,7 +613,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt: occurrenceMs,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await assistantMsgs(charId), '前提：这条该被吞').toHaveLength(0);
     const decision = readAllInstantTraces()
@@ -662,7 +662,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt: occurrenceMs,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await assistantMsgs(charId), '跨夜的早安不该被锚点规则吞掉').toHaveLength(1);
   }, 20000);
@@ -694,12 +694,38 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt: occurrenceMs,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await assistantMsgs(charId), '前提：这条该放行').toHaveLength(1);
     expect(
       readAllInstantTraces().some((e) => e.event === 'runtime-expire-decision-pass'),
       '放行也要留痕',
+    ).toBe(true);
+  }, 20000);
+
+  /**
+   * 这条守的是「排障能力本身」。收件箱里的消息有七八条路能捞出来，其中只有 SW 实时喊
+   * 页面那条是快的，其余（轮询、回前台、补收）都带着几秒到一分钟的固有延迟。线上出过
+   * 一次实时通道整个断掉、消息全靠 60 秒轮询兜底的故障——功能表面正常，只是每条都白等，
+   * 而当时的记录里没有触发源，只能靠算时间差反推。所以这个字段必须一直在。
+   */
+  it('每趟冲刷都要记下是谁触发的，否则查不出实时通道断没断', async () => {
+    const charId = 'char-flush-trigger';
+    await DB.saveCharacter({ id: charId, name: '触发源角色' } as any);
+    await ActiveMsgStore.saveInboxMessage(inboxMsg({
+      messageId: 'msg-flush-trigger',
+      charId,
+      messageType: 'text',
+      sentAt: Date.now(),
+    }));
+
+    await flushInboxToChat('轮询补收');
+
+    const flushStarts = readAllInstantTraces().filter((e) => e.event === 'runtime-flush-start');
+    expect(flushStarts.length, '前提：这趟冲刷要留痕').toBeGreaterThan(0);
+    expect(
+      flushStarts.some((e) => e.trigger === '轮询补收'),
+      '冲刷记录里必须带上触发源',
     ).toBe(true);
   }, 20000);
 
@@ -714,7 +740,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs.length).toBeGreaterThan(0);
@@ -734,7 +760,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
     }));
 
     const before = Date.now();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs.length).toBeGreaterThan(0);
@@ -763,7 +789,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
     }));
 
     const before = Date.now();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs.length).toBeGreaterThan(0);
@@ -780,7 +806,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs).toHaveLength(1);
@@ -807,7 +833,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         receivedAt,
       }));
       const t0 = Date.now();
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
       return Date.now() - t0;
     };
 
@@ -841,7 +867,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
     notePageBecameVisible(receivedAt + 1_000);
     const t0 = Date.now();
     try {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       notePageBecameVisible(0); // 全局状态，别漏给后面的用例
     }
@@ -861,7 +887,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       messageType: 'text',
       sentAt: Date.now() - 8 * 60_000, // 走补收口径，跳过拟人慢放
     }));
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
     const first = await assistantMsgs(charId);
     expect(first.length).toBeGreaterThan(0);
 
@@ -872,7 +898,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       messageType: 'text',
       sentAt: Date.now() - 8 * 60_000,
     }));
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect((await assistantMsgs(charId)).length, '第二次到达不能再上屏').toBe(first.length);
   }, 20000);
@@ -914,7 +940,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
       }
@@ -942,7 +968,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
       }
@@ -968,7 +994,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
       }
@@ -997,7 +1023,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
         // 收掉这一轮排下的补落定时器，别让它带着生产间隔漂进后面的测试
@@ -1089,7 +1115,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId, amsgEmotionDone: true, amsgEmotionRef: ref },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       expect(readSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
       const updated = (await DB.getAllCharacters()).find((c) => c.id === charId)!;
@@ -1124,7 +1150,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
       }
@@ -1157,7 +1183,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       const { seen, restore } = captureEvents();
       try {
-        await flushInboxToChat();
+        await flushInboxToChat('SW通知');
       } finally {
         restore();
         // 收掉这一轮排下的补落定时器，别让它带着生产间隔漂进后面的测试
@@ -1192,7 +1218,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId, messageIndex: 1, amsgReasoning: '他这句问得很轻，先接住。' },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       expect(await thinkingChainOf(charId)).toEqual(['他这句问得很轻，先接住。']);
     }, 20000);
@@ -1213,7 +1239,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId, messageIndex: 1, amsgReasoningRef: ref },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       expect(readSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
       expect(await thinkingChainOf(charId)).toEqual(['想了很久才决定这么说。']);
@@ -1234,7 +1260,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId, messageIndex: 2, amsgReasoning: '这段不该出现在卡片里。' },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       expect((await assistantMsgs(charId)).length).toBeGreaterThan(0);   // 正文照常上屏
       expect(await thinkingChainOf(charId)).toEqual([]);
@@ -1263,7 +1289,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId, amsgToolTrace: TRACE },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       const msgs = await assistantMsgs(charId);
       expect(msgs.length).toBeGreaterThan(0);
@@ -1288,7 +1314,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         metadata: { charId },
       }));
 
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
 
       const msgs = await assistantMsgs(charId);
       expect(msgs.length).toBeGreaterThan(0);
@@ -1306,7 +1332,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       sentAt,
     }));
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs).toHaveLength(1);
@@ -1452,7 +1478,7 @@ describe('认领角色自排任务后广播 amsg2-tasks-adopted', () => {
     await pushWithSelfScheduled(charId, 'msg-adopt-event-1', [selfScheduledTask('amsgself-evt-1', now)]);
 
     const events = captureEvents();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const adopted = events.filter((e) => e.type === AMSG2_TASKS_ADOPTED_EVENT);
     expect(adopted, '修复前只写库不广播，这里拿到 0 条').toHaveLength(1);
@@ -1470,7 +1496,7 @@ describe('认领角色自排任务后广播 amsg2-tasks-adopted', () => {
     await pushWithSelfScheduled(charId, 'msg-adopt-event-2', [selfScheduledTask('amsgself-evt-dup', now)]);
 
     const events = captureEvents();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(events.filter((e) => e.type === AMSG2_TASKS_ADOPTED_EVENT)).toHaveLength(0);
   }, 20000);
@@ -1505,7 +1531,7 @@ describe('认领角色自排任务后广播 amsg2-tasks-adopted', () => {
     } as any);
 
     const events = captureEvents();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const chars = await DB.getAllCharacters();
     const tasks = chars.find((c: any) => c.id === charId)?.activeMsg2Config?.tasks ?? [];
@@ -1538,7 +1564,7 @@ describe('认领角色自排任务后广播 amsg2-tasks-adopted', () => {
     } as any);
 
     const events = captureEvents();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(events.filter((e) => e.type === AMSG2_TASKS_ADOPTED_EVENT)).toHaveLength(0);
   }, 20000);
@@ -1715,7 +1741,7 @@ describe('防穿帮闸吞掉消息后撤销云端自述日志（走真库）', (
       },
     } as any);
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     // 撤销是 best-effort、不拦着 flush，所以等它自己跑完。
     await vi.waitFor(() => {
@@ -1783,7 +1809,7 @@ describe('多段消息跨批到达的等齐守卫（走真库）', () => {
     await DB.saveCharacter({ id: charId, name: '分段角色' } as any);
 
     await chunk(charId, sessionId, 2, 2, '……不然我一个人吃不完');
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await bodies(charId), '修复前后段会直接落库，顺序就此固定').toEqual([]);
     expect(
@@ -1792,7 +1818,7 @@ describe('多段消息跨批到达的等齐守卫（走真库）', () => {
     ).toEqual([`${sessionId}-2`]);
 
     await chunk(charId, sessionId, 1, 2, '晚上一起吃火锅吧');
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await bodies(charId)).toEqual(['晚上一起吃火锅吧', '……不然我一个人吃不完']);
   }, 20000);
@@ -1806,11 +1832,11 @@ describe('多段消息跨批到达的等齐守卫（走真库）', () => {
 
     // 扣满上限的那几次
     for (let i = 0; i < MAX_INBOX_ORDER_HOLDS; i += 1) {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
       expect(await bodies(charId), `第 ${i + 1} 次还该扣着`).toEqual([]);
     }
     // 再来一次：放行
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await bodies(charId)).toEqual(['……你说呢']);
     expect(await ActiveMsgStore.listInboxMessages()).toEqual([]);
@@ -1822,7 +1848,7 @@ describe('多段消息跨批到达的等齐守卫（走真库）', () => {
     await DB.saveCharacter({ id: charId, name: '分段角色' } as any);
 
     await chunk(charId, sessionId, 1, 2, '在吗');
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(await bodies(charId)).toEqual(['在吗']);
   }, 20000);
@@ -1883,7 +1909,7 @@ describe('离线补收落库时间戳与本地历史的先后（走真库）', (
     await backfillPush(charId, 'msg-backfill-after-user', sentAt);
 
     const before = Date.now();
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs).toHaveLength(1);
@@ -1896,7 +1922,7 @@ describe('离线补收落库时间戳与本地历史的先后（走真库）', (
     await DB.saveCharacter({ id: charId, name: '守夜角色' } as any);
     await backfillPush(charId, 'msg-backfill-quiet', sentAt);
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await assistantMsgs(charId);
     expect(msgs).toHaveLength(1);
@@ -1938,7 +1964,7 @@ describe('重试清场时副作用产物不受牵连（走真库）', () => {
       metadata: { directives: [{ type: 'transfer', amount: 5 }] },
     } as any);
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const msgs = await DB.getRecentMessagesByCharId(charId, 200);
     const transfers = msgs.filter((m) => m.type === 'transfer');
@@ -1980,7 +2006,7 @@ describe('重试清场·只留下副作用产物的半成品（走真库）', ()
       metadata: { directives: [{ type: 'transfer', amount: 8 }] },
     } as any);
 
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     const transfers = (await DB.getRecentMessagesByCharId(charId, 200))
       .filter((m) => m.type === 'transfer');
@@ -2058,7 +2084,7 @@ describe('即时对话的待收记录（走真库）', () => {
       sentAt: Date.now(),
       metadata: { charId },
     } as any);
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(getInstantChatPending(charId)).toBeNull();
   }, 20000);
@@ -2085,7 +2111,7 @@ describe('即时对话的待收记录（走真库）', () => {
       sentAt: Date.now(),
       metadata: { charId },
     } as any);
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(marked).toHaveBeenCalledWith(charId, ['expired-1', 'expired-2']);
     expect(getStagedInstantChatExpiredNotices(charId)).toBeNull();
@@ -2110,7 +2136,7 @@ describe('即时对话的待收记录（走真库）', () => {
       sentAt: Date.now(),
       metadata: { charId },
     } as any);
-    await flushInboxToChat();
+    await flushInboxToChat('SW通知');
 
     expect(getInstantChatPending(charId)?.uuid, '别的消息不能替这一轮销账').toBe('uuid-awaited');
   }, 20000);
@@ -2492,7 +2518,7 @@ describe('收件箱处理途中抛错不许吞掉整批（走真库）', () => {
       return ms != null && ms >= 1_000 ? (0 as any) : realSetTimeout(fn, ms, ...rest);
     }) as any);
     try {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       spy.mockRestore();
     }
@@ -2530,7 +2556,7 @@ describe('收件箱处理途中抛错不许吞掉整批（走真库）', () => {
     const track = vi.spyOn(Analytics, 'trackEvent').mockImplementation(() => {});
     const timers = captureInboxRetryTimer();
     try {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       timers.restore();
     }
@@ -2575,7 +2601,7 @@ describe('收件箱处理途中抛错不许吞掉整批（走真库）', () => {
 
     const timers = captureInboxRetryTimer();
     try {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       timers.restore();
       dispatch.mockRestore();
@@ -2625,7 +2651,7 @@ describe('收件箱处理途中抛错不许吞掉整批（走真库）', () => {
 
     const timers = captureInboxRetryTimer();
     try {
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       timers.restore();
     }
@@ -2687,7 +2713,7 @@ describe('云端旁路副本等这条消息处理成功了再删（走真库）'
     try {
       // 第一趟：落库挂了（配额满 / 连接被占那种），这条被压回收件箱等重试。
       const saveSpy = vi.spyOn(DB, 'saveMessage').mockRejectedValue(new Error('QuotaExceededError'));
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
       saveSpy.mockRestore();
 
       expect(clearSpy, '这一趟没成，云端那几份一个都不许删').not.toHaveBeenCalled();
@@ -2697,7 +2723,7 @@ describe('云端旁路副本等这条消息处理成功了再删（走真库）'
       ).toBe(true);
 
       // 第二趟：存储缓过来了，重试把心象卡片补上。
-      await flushInboxToChat();
+      await flushInboxToChat('SW通知');
     } finally {
       timers.restore();
     }
