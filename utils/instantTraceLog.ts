@@ -12,7 +12,14 @@
 import { APP_VERSION, BUILD_LABEL } from './buildInfo';
 
 const TRACE_LOG_KEY = 'instant_push_trace_log_v1';
-const TRACE_LOG_LIMIT = 200;
+/**
+ * 留多少条。
+ *
+ * 一轮多段回复本身就能打三四十条，再加上 SW 每喊一次页面也记一条，200 条只够翻回
+ * 三四轮——而排障要的往往是「上午那次」。实测每条约 280 字节，400 条也就一百来 KB，
+ * localStorage 装得下，导出的文件也还是能直接发给人的大小。
+ */
+const TRACE_LOG_LIMIT = 400;
 
 export interface InstantTraceEntry {
   ts?: string;

@@ -2742,12 +2742,29 @@ export const ActiveMsgRuntime = {
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
+        // 切走也记一笔。排「消息在收件箱躺了很久」时要回答的是「那段时间页面在干嘛」，
+        // 而只记「回来了」的话，前面那段空白到底是页面没在跑、还是在跑但没人喊它，
+        // 事后分不出来。
+        activeMsgTrace('runtime-page-visibility', { state: document.visibilityState });
         if (document.visibilityState !== 'visible') return;
         handlePageBecameVisible();
       });
       // 冷启动那一下（点通知才把 App 拉起来）没有 visibilitychange 可听，这里补一次：
       // 不补的话「回到前台的时刻」一直是 0，从通知进来的第一条判不出「送达时人不在」。
       if (document.visibilityState === 'visible') notePageBecameVisible();
+    }
+
+    // 浏览器把后台页面冻起来 / 解冻。冻结期间 JS 完全不跑，SW 喊过来的消息会排队等
+    // 解冻——这跟「SW 压根没喊」在事后看长得一模一样（页面侧都是一段空白），只有这两
+    // 个事件能把它们分开。移动端和 iOS 的 PWA 冻得尤其积极。
+    // 不是所有浏览器都发这两个事件，收不到就当没有，不影响其它判断。
+    if (typeof document !== 'undefined') {
+      document.addEventListener('freeze', () => {
+        activeMsgTrace('runtime-page-freeze');
+      });
+      document.addEventListener('resume', () => {
+        activeMsgTrace('runtime-page-resume');
+      });
     }
 
     // 受理一轮即时对话之后（useChatAI 那边写记录 + 广播），把点名周期排上。
