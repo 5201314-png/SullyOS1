@@ -39,7 +39,7 @@ describe('以 ChatApp 实际发送链路为基准核对上下文', () => {
             contextRangePolicyVersion: 1, contextRangeMode: scenario.mode, contextLimit: scenario.limit,
             autoArchiveEnabled: !('oneShot' in scenario || 'orphan' in scenario),
             contextFollowsMemoryPalaceHwm: 'oneShot' in scenario,
-            contextUserStartMessageId: 'breakpoint' in scenario ? ids[scenario.breakpoint - 1] : undefined,
+            contextUserStartMessageId: scenario.breakpoint !== undefined ? ids[scenario.breakpoint - 1] : undefined,
         };
         await DB.saveCharacter(char);
         localStorage.setItem(`mp_lastMsgId_${charId}`, String(ids[scenario.hwm - 1]));
