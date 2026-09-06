@@ -39,4 +39,13 @@ describe('手动总结按页读取', () => {
         const controller = new AbortController(); controller.abort();
         await expect(loadRangeMessagePage('range-large', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
     });
+
+    it('清理入口可选中空消息，手动总结仍跳过空消息', async () => {
+        const empty = await DB.saveMessage({ charId: 'range-empty', role: 'user', type: 'text', content: '' });
+        const text = await DB.saveMessage({ charId: 'range-empty', role: 'assistant', type: 'text', content: '正文' });
+        expect((await loadRangeMessagePage('range-empty')).messages.map(message => message.id)).toEqual([text]);
+        const cleanup = await loadRangeMessagePage('range-empty', { includeEmpty: true });
+        expect(cleanup.messages.map(message => message.id)).toEqual([empty, text]);
+        expect(cleanup.messages[0].content).toBe('[空消息]');
+    });
 });

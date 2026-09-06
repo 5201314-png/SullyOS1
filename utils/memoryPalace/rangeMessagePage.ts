@@ -25,6 +25,7 @@ export async function loadRangeMessagePage(charId: string, options: {
     afterId?: number;
     query?: string;
     limit?: number;
+    includeEmpty?: boolean;
     signal?: AbortSignal;
 } = {}): Promise<RangeMessagePage> {
     const db = await openDB();
@@ -55,7 +56,8 @@ export async function loadRangeMessagePage(charId: string, options: {
             }
             const message = cursor.value as Message;
             if (!message.groupId) {
-                const content = readableContent(message);
+                const rawContent = readableContent(message);
+                const content = rawContent.trim() || !options.includeEmpty ? rawContent : '[空消息]';
                 if (content.trim() && (!query || normalizeRangeSearchText(`${content} ${formatRangeTimestamp(message.timestamp)}`).includes(query))) {
                     if (messages.length === limit) { hasMore = true; return; }
                     // 不把附件、metadata、完整正文留在 React 状态里。
