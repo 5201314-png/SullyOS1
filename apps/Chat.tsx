@@ -61,7 +61,7 @@ import {
     stripTtsMarkupForDisplay,
     synthesizeSpeechDetailed,
 } from '../utils/ttsRouter';
-import { shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
+import { playVoiceAudio, primeVoiceAudio, stopVoiceAudio, voicePlaybackErrorMessage, shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
 import { voiceLanguageAnalyticsValue, voiceLanguagePromptLabel } from '../utils/voiceLanguage';
 import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
 import { CollaborationStore } from '../features/collaboration/store';
@@ -457,6 +457,8 @@ const Chat: React.FC = () => {
     const [voiceLoading, setVoiceLoading] = useState<Set<number>>(new Set());
     const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
     const chatAudioRef = useRef<HTMLAudioElement | null>(null);
+    const voiceRequestsRef = useRef(new Set<number>());
+    const voiceMountedRef = useRef(true);
     const prevIsTypingRef = useRef(false);
     // 即时对话那条路的自动合成扫描窗（用法见下面那个 auto-TTS 的 effect）：
     // 「正在输入」灯灭的那一下开窗，窗口内每次消息变化都补扫一遍；角色不对就整个作废。
@@ -513,6 +515,18 @@ const Chat: React.FC = () => {
         }
     };
 
+    const prepareChatAudio = () => {
+        if (!chatAudioRef.current) chatAudioRef.current = new Audio();
+        return chatAudioRef.current;
+    };
+    const playChatVoice = (msgId: number, url: string) => {
+        void playVoiceAudio(prepareChatAudio(), url, {
+            onPlaying: () => setPlayingMsgId(msgId),
+            onStopped: () => setPlayingMsgId(null),
+            onError: error => addToast(voicePlaybackErrorMessage(error), 'info'),
+        });
+    };
+
     const handlePlayVoice = (msgId: number) => {
         const data = voiceDataMap[msgId];
         if (!data) {
@@ -521,17 +535,13 @@ const Chat: React.FC = () => {
             if (msg) handleManualTts(msg, false);
             return;
         }
-        if (!chatAudioRef.current) chatAudioRef.current = new Audio();
-        const audio = chatAudioRef.current;
+        const audio = prepareChatAudio();
         if (playingMsgId === msgId) {
-            audio.pause();
+            stopVoiceAudio(audio);
             setPlayingMsgId(null);
             return;
         }
-        audio.src = data.url;
-        audio.onended = () => setPlayingMsgId(null);
-        audio.play().catch(() => {});
-        setPlayingMsgId(msgId);
+        playChatVoice(msgId, data.url);
     };
 
     // 稳定的播放回调：用 ref 持有最新闭包，引用永不变 —— 避免每条消息每次渲染都新建箭头函数，
@@ -562,7 +572,7 @@ const Chat: React.FC = () => {
     };
 
     const handleManualTts = async (msg: Message, autoTriggered = false): Promise<GeneratedVoiceData | null> => {
-        if (voiceLoading.has(msg.id)) return null;
+        if (voiceRequestsRef.current.has(msg.id)) return null;
         if (voiceDataMap[msg.id]) {
             if (autoTriggered) return null;
             // 手动点「转换语音」= 用户要求重新生成（典型场景：编辑了消息内容后）。
@@ -602,6 +612,8 @@ const Chat: React.FC = () => {
             return null;
         }
 
+        if (!autoTriggered) primeVoiceAudio(prepareChatAudio());
+        voiceRequestsRef.current.add(msg.id);
         setVoiceLoading(prev => new Set(prev).add(msg.id));
         try {
             let spokenText: string;
@@ -661,22 +673,22 @@ const Chat: React.FC = () => {
                 groupId: apiConfig.minimaxGroupId || undefined,
                 emotion: voiceEmotion,
             });
-            if (blobUrl.startsWith('blob:')) voiceBlobUrlsRef.current.add(blobUrl);
             // 转文字面板只展示实际台词，不展示当前引擎的停顿 / 表演标记。
             const displaySpoken = stripTtsMarkupForDisplay(spokenText, apiConfig);
             const storedSpokenText = voiceTagContent ? displaySpoken : (voiceLang ? displaySpoken : undefined);
             const storedLang = voiceLang || undefined;
-            setVoiceDataMap(prev => ({ ...prev, [msg.id]: { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang } }));
             // Persist so the voice bar survives leaving and re-entering the chat.
             persistVoice(msg.id, blobUrl, blob, originalText, storedSpokenText, storedLang);
+            if (!voiceMountedRef.current || activeCharIdRef.current !== msg.charId) {
+                if (blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
+                return null;
+            }
+            if (blobUrl.startsWith('blob:')) voiceBlobUrlsRef.current.add(blobUrl);
+            setVoiceDataMap(prev => ({ ...prev, [msg.id]: { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang } }));
             // 合成完是否立刻播（规则和来由见 shouldAutoPlayGeneratedVoice）：
             // AI 自动发来的默认不响、等用户点；用户自己点着要的一定响。
             if (shouldAutoPlayGeneratedVoice({ autoTriggered, autoPlayEnabled: char.chatVoiceAutoPlay })) {
-                if (!chatAudioRef.current) chatAudioRef.current = new Audio();
-                chatAudioRef.current.src = blobUrl;
-                chatAudioRef.current.onended = () => setPlayingMsgId(null);
-                chatAudioRef.current.play().catch(() => {});
-                setPlayingMsgId(msg.id);
+                playChatVoice(msg.id, blobUrl);
             }
             return { url: blobUrl, originalText, spokenText: storedSpokenText, lang: storedLang, blob };
         } catch (err: any) {
@@ -685,6 +697,7 @@ const Chat: React.FC = () => {
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
             return null;
         } finally {
+            voiceRequestsRef.current.delete(msg.id);
             setVoiceLoading(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
         }
     };
@@ -936,12 +949,15 @@ const Chat: React.FC = () => {
 
     // Revoke blob URLs when switching characters / unmounting to avoid leaks.
     useEffect(() => {
+        voiceMountedRef.current = true;
         // Reset the "active TTS not configured" warning so each character gets one reminder.
         ttsWarnedRef.current = false;
         // 自动合成的失败记录也跟着换角色清空：这一位的失败不该拦着下一位。
         voiceFailedRef.current.clear();
         const urls = voiceBlobUrlsRef.current;
         return () => {
+            voiceMountedRef.current = false;
+            if (chatAudioRef.current) stopVoiceAudio(chatAudioRef.current);
             urls.forEach(u => { try { URL.revokeObjectURL(u); } catch { /* ignore */ } });
             urls.clear();
         };
@@ -1007,7 +1023,7 @@ const Chat: React.FC = () => {
             // by the cleanup effect and must not be reused against new messages.
             setVoiceDataMap({});
             setPlayingMsgId(null);
-            if (chatAudioRef.current) { try { chatAudioRef.current.pause(); } catch { /* ignore */ } }
+            if (chatAudioRef.current) { try { stopVoiceAudio(chatAudioRef.current); } catch { /* ignore */ } }
 
             reloadMessages(LOAD_BATCH_SIZE);
             loadEmojiData();
@@ -1356,6 +1372,7 @@ const Chat: React.FC = () => {
         noteMessageSent();
         // 借用户"发送"这个手势解锁音频上下文，好让稍后 AI 回复时的白框提示音能顺利播放（移动端自动播放策略）。
         unlockWhiteboxAudio();
+        if (char.chatVoiceEnabled && char.chatVoiceAutoPlay && isTtsReady()) primeVoiceAudio(prepareChatAudio());
         const text = customContent || input.trim();
         const type = customType || 'text';
 

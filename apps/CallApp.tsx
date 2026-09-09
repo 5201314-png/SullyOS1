@@ -1,4 +1,5 @@
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import { canAnalyzeVoiceSource, isVoiceAudioPriming, primeVoiceAudio, voicePlaybackErrorMessage } from '../utils/voicePlayback';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
@@ -601,7 +602,11 @@ const CallApp: React.FC = () => {
     audioRef.current = new Audio();
     audioRef.current.preload = 'auto';
   }
-  const audioPrimingRef = useRef(false);
+  // Keep a separate native element for CORS-blocked remote fallbacks. Once a media
+  // element has entered WebAudio it cannot be detached to restore native output.
+  const localCallAudioRef = useRef(audioRef.current);
+  const remoteCallAudioRef = useRef<HTMLAudioElement | null>(null);
+  if (!remoteCallAudioRef.current && typeof Audio !== 'undefined') remoteCallAudioRef.current = new Audio();
   const nativeCallAudioOnly = useMemo(() => shouldKeepNativeCallAudio(), []);
   const userCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const userCameraStreamRef = useRef<MediaStream | null>(null);
@@ -902,7 +907,7 @@ const CallApp: React.FC = () => {
   useEffect(() => {
     // The analyser is a video-only enhancement. Voice calls stay entirely on the
     // browser's native audio path, and iOS always uses the synthetic lip fallback.
-    audioFeedRef.current?.setActive(callMode === 'video' && isAudioPlaying);
+    audioFeedRef.current?.setActive(callMode === 'video' && isAudioPlaying && audioRef.current === localCallAudioRef.current);
   }, [callMode, isAudioPlaying]);
 
   useEffect(() => () => {
@@ -1599,22 +1604,10 @@ const CallApp: React.FC = () => {
     // directly in the click stack; never wait for React onPlay/useEffect.
     if (!nativeCallAudioOnly) void getAudioFeed().unlock();
 
-    audioPrimingRef.current = true;
-    audio.muted = false;
-    audio.src = SILENT_CALL_AUDIO_DATA_URL;
-    audio.currentTime = 0;
-    const finishPrime = () => {
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
-      window.setTimeout(() => { audioPrimingRef.current = false; }, 0);
-    };
-    try {
-      const attempt = audio.play();
-      if (attempt) void attempt.then(finishPrime).catch(() => { audioPrimingRef.current = false; });
-      else finishPrime();
-    } catch {
-      audioPrimingRef.current = false;
+    for (const element of [localCallAudioRef.current, remoteCallAudioRef.current]) {
+      if (!element) continue;
+      element.muted = false;
+      primeVoiceAudio(element, SILENT_CALL_AUDIO_DATA_URL);
     }
   };
   const beginSelectedCall = (cameraMode: UserCameraMode = 'off') => {
@@ -2069,10 +2062,10 @@ ${sentencePlan}`;
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const handlePlay = () => {
-      if (audioPrimingRef.current) return;
+    const elements = [localCallAudioRef.current, remoteCallAudioRef.current].filter((audio): audio is HTMLAudioElement => !!audio);
+    const handlePlay = (event: Event) => {
+      const audio = event.currentTarget as HTMLAudioElement;
+      if (audio !== audioRef.current || isVoiceAudioPriming(audio)) return;
       clearSilentSpeechTimer();
       setIsAudioPlaying(true);
       setCallState('speaking');
@@ -2085,22 +2078,29 @@ ${sentencePlan}`;
         : pending.fallbackMs;
       schedulePerformanceCues(pending.cues, durationMs);
     };
-    const handleStop = () => {
-      if (audioPrimingRef.current) return;
+    const handleStop = (event: Event) => {
+      const audio = event.currentTarget as HTMLAudioElement;
+      if (audio !== audioRef.current || isVoiceAudioPriming(audio)) return;
       setIsAudioPlaying(false);
       clearPerformanceCueTimers();
       setCallState(previous => (previous === 'speaking' ? 'listening' : previous));
     };
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handleStop);
-    audio.addEventListener('ended', handleStop);
+    for (const audio of elements) {
+      audio.addEventListener('play', handlePlay);
+      audio.addEventListener('pause', handleStop);
+      audio.addEventListener('ended', handleStop);
+      audio.addEventListener('error', handleStop);
+    }
     return () => {
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handleStop);
-      audio.removeEventListener('ended', handleStop);
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
+      for (const audio of elements) {
+        audio.removeEventListener('play', handlePlay);
+        audio.removeEventListener('pause', handleStop);
+        audio.removeEventListener('ended', handleStop);
+        audio.removeEventListener('error', handleStop);
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
     };
   }, []);
 
@@ -2110,12 +2110,14 @@ ${sentencePlan}`;
 
   const startCallAudioElement = (audio: HTMLAudioElement, forceAudible = false): Promise<void> => {
     audio.muted = forceAudible ? false : !isSpeakerOn;
-    const feed = callMode === 'video' && !nativeCallAudioOnly ? getAudioFeed() : null;
+    const feed = callMode === 'video' && !nativeCallAudioOnly && audio === localCallAudioRef.current ? getAudioFeed() : null;
     // Both calls are made immediately in the originating click stack. The graph
     // is attached only after both succeeded, so a suspended context can never
     // steal otherwise-audible native media output.
     const unlockAttempt = feed?.unlock();
-    const playbackAttempt = audio.play();
+    let playbackAttempt: Promise<void>;
+    try { playbackAttempt = Promise.resolve(audio.play()); }
+    catch (error) { return Promise.reject(error); }
     if (feed && unlockAttempt) {
       void Promise.allSettled([unlockAttempt, playbackAttempt]).then(([unlockResult, playbackResult]) => {
         if (unlockResult.status === 'fulfilled' && unlockResult.value && playbackResult.status === 'fulfilled') {
@@ -2137,14 +2139,21 @@ ${sentencePlan}`;
     if (audioUrl !== targetUrl) setAudioUrl(targetUrl);
     // 时间轴在 onPlay 时用真实音频时长调度；拿不到时长再用估计值。
     pendingCueScheduleRef.current = cues?.length ? { cues, fallbackMs: estimatedDurationMs } : null;
-    const audio = audioRef.current;
+    const audio = canAnalyzeVoiceSource(targetUrl) ? localCallAudioRef.current! : remoteCallAudioRef.current!;
+    if (audioRef.current !== audio) {
+      const previousAudio = audioRef.current;
+      audioRef.current = audio;
+      previousAudio.pause();
+    }
+    audioFeedRef.current?.setActive(callMode === 'video' && audio === localCallAudioRef.current);
     audio.src = targetUrl;
     audio.currentTime = 0;
-    startCallAudioElement(audio, forceAudible).catch(() => {
+    startCallAudioElement(audio, forceAudible).catch(error => {
+      if (audioRef.current !== audio || audio.src !== targetUrl) return;
       pendingCueScheduleRef.current = null;
       if (callMode === 'video') playSilentAvatarSpeech('', cues, estimatedDurationMs);
       else setCallState('listening');
-      addToast(forceAudible ? '播放失败，请再点一次“重播语音”' : '浏览器拦截了本次自动播放；点“重播语音”即可恢复', 'info');
+      addToast(voicePlaybackErrorMessage(error, '重播语音'), 'info');
     });
     setCallState('speaking');
   };
